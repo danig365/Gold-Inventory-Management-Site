@@ -1,5 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
+import { api } from '../api';
+import { PresenceUser } from '../types';
 import { 
   LayoutDashboard, 
   FileText, 
@@ -14,12 +16,17 @@ import {
   Settings,
   LogOut,
   ChevronRight,
-  Database
+  Database,
+  Users,
+  CircleDot
 } from 'lucide-react';
 
 interface LayoutProps {
   children: React.ReactNode;
   title: string;
+  projectName: string;
+  userDisplayName: string;
+  userRole: string;
   onLogoClick: () => void;
   onViewReport: () => void;
   onViewSummary: () => void;
@@ -29,6 +36,7 @@ interface LayoutProps {
   onToggleDarkMode: () => void;
   isDarkMode: boolean;
   activeView: 'dashboard' | 'ledger' | 'report' | 'summary' | 'banks' | 'daily';
+  onLogout: () => void;
   onBackup?: () => void;
   onRestore?: () => void;
   useDatabase?: boolean;
@@ -37,6 +45,9 @@ interface LayoutProps {
 export const Layout: React.FC<LayoutProps> = ({ 
   children, 
   title, 
+  projectName,
+  userDisplayName,
+  userRole,
   onLogoClick, 
   onViewReport, 
   onViewSummary, 
@@ -46,6 +57,7 @@ export const Layout: React.FC<LayoutProps> = ({
   onToggleDarkMode, 
   isDarkMode, 
   activeView,
+  onLogout,
   onBackup,
   onRestore,
   useDatabase
@@ -56,10 +68,42 @@ export const Layout: React.FC<LayoutProps> = ({
   });
 
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [presenceUsers, setPresenceUsers] = useState<PresenceUser[]>([]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    const loadPresence = async () => {
+      try {
+        const data = await api.getPresenceUsers();
+        if (!mounted) return;
+        setPresenceUsers(data.users);
+      } catch (error) {
+        console.warn('Presence load failed:', error);
+      }
+    };
+
+    loadPresence();
+    const interval = window.setInterval(loadPresence, 30000);
+    return () => {
+      mounted = false;
+      window.clearInterval(interval);
+    };
+  }, []);
+
+  const onlineUsersCount = presenceUsers.filter((u) => u.is_online).length;
+  const sidebarPresenceUsers = presenceUsers.slice(0, 3);
 
   useEffect(() => {
     localStorage.setItem('haroon_sidebar_collapsed', String(isSidebarCollapsed));
   }, [isSidebarCollapsed]);
+
+  const initials = userDisplayName
+    .split(' ')
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() || '')
+    .join('') || 'U';
 
   const navItems = [
     { id: 'dashboard', label: 'Customers', icon: LayoutDashboard, onClick: onViewDashboard },
@@ -108,12 +152,12 @@ export const Layout: React.FC<LayoutProps> = ({
             className="flex items-center space-x-3 overflow-hidden"
           >
             <div className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-black text-[11px] tracking-tight shrink-0 shadow-lg shadow-indigo-200 dark:shadow-none bg-gradient-to-br from-indigo-600 via-violet-600 to-fuchsia-600 border border-white/20">
-              ZA
+              {initials}
             </div>
             {!isSidebarCollapsed && (
               <div className="flex flex-col text-left animate-in fade-in duration-500">
-                <span className="text-sm font-semibold text-slate-800 dark:text-white leading-none">Zain Abbas</span>
-                <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400 tracking-wide mt-1">Ledger</span>
+                <span className="text-sm font-semibold text-slate-800 dark:text-white leading-none">{userDisplayName}</span>
+                <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400 tracking-wide mt-1">{projectName}</span>
               </div>
             )}
           </button>
@@ -125,6 +169,40 @@ export const Layout: React.FC<LayoutProps> = ({
           ))}
         </nav>
         <div className="p-4 mt-auto border-t border-gray-100 dark:border-slate-800">
+          <div className={`mb-4 ${isSidebarCollapsed ? 'px-0' : 'px-2'}`}>
+            {isSidebarCollapsed ? (
+              <div className="flex justify-center" title={`${onlineUsersCount} users online`}>
+                <div className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-300">
+                  <Users size={14} />
+                </div>
+              </div>
+            ) : (
+              <div className="rounded-xl border border-gray-100 dark:border-slate-800 bg-gray-50/80 dark:bg-slate-800/40 p-3">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <Users size={13} className="text-slate-500 dark:text-slate-300" />
+                    <span className="text-[11px] font-semibold tracking-wide text-slate-600 dark:text-slate-300">Active Users</span>
+                  </div>
+                  <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">{onlineUsersCount} online</span>
+                </div>
+                <div className="space-y-1.5">
+                  {sidebarPresenceUsers.length === 0 && (
+                    <p className="text-[10px] font-medium text-slate-400 dark:text-slate-500">No users</p>
+                  )}
+                  {sidebarPresenceUsers.map((presenceUser) => (
+                    <div key={presenceUser.id} className="flex items-center justify-between gap-2">
+                      <span className="text-[10px] font-medium text-slate-500 dark:text-slate-400 truncate">{presenceUser.display_name}</span>
+                      <span className={`inline-flex items-center gap-1 text-[9px] font-semibold ${presenceUser.is_online ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400 dark:text-slate-500'}`}>
+                        <CircleDot size={10} />
+                        {presenceUser.is_online ? 'ON' : 'OFF'}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* Database Status */}
           <div className={`mb-3 ${isSidebarCollapsed ? 'px-0' : 'px-2'}`}>
             <div className={`flex items-center mb-2 ${isSidebarCollapsed ? 'justify-center' : 'space-x-2'}`}>
@@ -154,7 +232,7 @@ export const Layout: React.FC<LayoutProps> = ({
         >
           {isMobileMenuOpen ? <ChevronLeft size={24} /> : <Menu size={24} />}
         </button>
-        <div className="font-semibold text-sm tracking-wide">Zain Abbas</div>
+        <div className="font-semibold text-sm tracking-wide">{userDisplayName}</div>
         <button onClick={onToggleDarkMode} className="p-2 hover:bg-white/10 rounded-lg">
           {isDarkMode ? <Sun size={20} /> : <Moon size={20} />}
         </button>
@@ -184,7 +262,7 @@ export const Layout: React.FC<LayoutProps> = ({
                 {isDarkMode ? <Sun size={20} /> : <Moon size={20} />}
                 <span className="text-xs font-semibold">Toggle Theme</span>
               </button>
-              <button className="text-slate-400 flex items-center space-x-3">
+              <button onClick={onLogout} className="text-slate-400 flex items-center space-x-3">
                 <LogOut size={20} />
                 <span className="text-xs font-semibold">Sign Out</span>
               </button>
@@ -221,13 +299,22 @@ export const Layout: React.FC<LayoutProps> = ({
 
             <div className="flex items-center space-x-4">
                <div className="text-right">
-                  <p className="text-sm font-semibold text-slate-800 dark:text-white leading-none">Zain Abbas</p>
-                  <p className="text-[11px] font-medium text-indigo-600 dark:text-indigo-400 tracking-wide mt-1">Super Admin</p>
+                <p className="text-sm font-semibold text-slate-800 dark:text-white leading-none">{userDisplayName}</p>
+                <p className="text-[11px] font-medium text-indigo-600 dark:text-indigo-400 tracking-wide mt-1">{userRole}</p>
                </div>
                <div className="w-10 h-10 bg-slate-100 dark:bg-slate-800 rounded-xl flex items-center justify-center text-slate-400 border border-gray-200 dark:border-slate-700">
                   <User size={20} />
                </div>
             </div>
+
+            <button
+              onClick={onLogout}
+              className="inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-300 hover:bg-rose-100 dark:hover:bg-rose-900/50 border border-rose-200/70 dark:border-rose-900/60 transition-colors text-sm font-semibold"
+              title="Logout"
+            >
+              <LogOut size={16} />
+              <span>Logout</span>
+            </button>
           </div>
         </header>
 
@@ -237,7 +324,7 @@ export const Layout: React.FC<LayoutProps> = ({
         </main>
 
         <footer className="bg-white dark:bg-slate-900 border-t border-gray-100 dark:border-slate-800 py-8 px-8 flex flex-col md:flex-row justify-between items-center text-slate-500 text-[11px] font-medium tracking-wide transition-colors duration-300">
-          <span>&copy; {new Date().getFullYear()} New Jehlum Gold Smith Management</span>
+          <span>&copy; {new Date().getFullYear()} {projectName} Management</span>
           <div className="flex space-x-6 mt-4 md:mt-0">
              <span className="hover:text-indigo-600 cursor-pointer">Security Policy</span>
              <span className="hover:text-indigo-600 cursor-pointer">System Updates</span>

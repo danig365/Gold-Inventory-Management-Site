@@ -66,3 +66,32 @@ export interface AppState {
   transactions: Transaction[];
   banks: Bank[];
 }
+
+export interface AuthUser {
+  id: string;
+  username: string;
+  displayName: string;
+  projectName: string;
+  role: string;
+}
+
+export interface AdminUser {
+  id: string;
+  username: string;
+  display_name: string;
+  project_name: string;
+  role: string;
+  is_active: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PresenceUser {
+  id: string;
+  username: string;
+  display_name: string;
+  role: string;
+  is_active: boolean;
+  last_seen: string | null;
+  is_online: boolean;
+}

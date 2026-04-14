@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Customer, Transaction, AppState, Bank } from './types';
+import { Customer, Transaction, AppState, Bank, AuthUser } from './types';
 import Dashboard from './components/Dashboard';
 import CustomerLedger from './components/CustomerLedger';
 import MonthlyReport from './components/MonthlyReport';
@@ -8,15 +8,26 @@ import DailyTradeReport from './components/DailyTradeReport';
 import CustomerSummaryReport from './components/CustomerSummaryReport';
 import BankLedger from './components/BankLedger';
 import { Layout } from './components/Layout';
+import { AuthPortal } from './components/AuthPortal';
 import { api } from './api';
 
-const STORAGE_KEY = 'haroon_gold_smith_v2';
 const THEME_KEY = 'haroon_dark_mode';
+
+const emptyState: AppState = {
+  customers: [],
+  transactions: [],
+  banks: [],
+};
 
 const App: React.FC = () => {
   const [isDarkMode, setIsDarkMode] = useState(() => {
     return localStorage.getItem(THEME_KEY) === 'true';
   });
+
+  const [authChecking, setAuthChecking] = useState(true);
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
+  const [isLoadingData, setIsLoadingData] = useState(false);
+  const [hasLoadedData, setHasLoadedData] = useState(false);
 
   const [useDatabase, setUseDatabase] = useState(true);
   
@@ -25,49 +36,66 @@ const App: React.FC = () => {
     customerId?: string;
   }>({ type: 'dashboard' });
 
-  const [state, setState] = useState<AppState>(() => {
-    // Start with default state
-    return {
-      customers: [
-        { id: '1', name: 'Ali Ahmed', address: 'Quetta', phone: '0300-1234567' }
-      ],
-      transactions: [],
-      banks: [
-        { id: 'b1', name: 'Meezan Bank', accountNumber: '010101', initialBalance: 0 }
-      ]
-    };
-  });
+  const [state, setState] = useState<AppState>(emptyState);
 
-  // Load data from server API on mount
+  // Restore existing session on mount
   useEffect(() => {
-    const loadData = async () => {
-      try {
-        const data = await api.getAppData();
-        if (data && data.customers && data.transactions !== undefined) {
-          setState(data);
-          setUseDatabase(true);
-          console.log('Loaded data from server');
-          return;
-        }
-      } catch (error) {
-        console.warn('Server not available, falling back to localStorage:', error);
+    const restoreSession = async () => {
+      if (!api.hasToken()) {
+        setAuthChecking(false);
+        return;
       }
 
-      // Fallback to localStorage
       try {
-        const saved = localStorage.getItem(STORAGE_KEY);
-        if (saved) {
-          setState(JSON.parse(saved));
-          setUseDatabase(false);
-          console.log('Loaded data from localStorage');
+        const user = await api.getCurrentUser();
+        setCurrentUser(user);
+      } catch (error) {
+        console.warn('Session restore failed:', error);
+        await api.logout();
+        setCurrentUser(null);
+      } finally {
+        setAuthChecking(false);
+      }
+    };
+
+    restoreSession();
+  }, []);
+
+  // Load user-scoped data when a user logs in
+  useEffect(() => {
+    const loadData = async () => {
+      if (!currentUser) {
+        setState(emptyState);
+        setHasLoadedData(false);
+        return;
+      }
+
+      setIsLoadingData(true);
+      setHasLoadedData(false);
+
+      try {
+        const data = await api.getAppData();
+        if (data && data.customers && data.transactions !== undefined && data.banks !== undefined) {
+          setState(data as AppState);
+          setUseDatabase(true);
+        } else {
+          setState(emptyState);
         }
       } catch (error) {
-        console.error('Error loading from localStorage:', error);
+        console.error('Error loading user data:', error);
+        if ((error as Error).message.toLowerCase().includes('unauthorized')) {
+          await api.logout();
+          setCurrentUser(null);
+          setState(emptyState);
+        }
+      } finally {
+        setHasLoadedData(true);
+        setIsLoadingData(false);
       }
     };
 
     loadData();
-  }, []);
+  }, [currentUser]);
 
   useEffect(() => {
     localStorage.setItem(THEME_KEY, String(isDarkMode));
@@ -80,6 +108,8 @@ const App: React.FC = () => {
 
   // Save data to server API on state change
   useEffect(() => {
+    if (!currentUser || !hasLoadedData) return;
+
     const saveData = async () => {
       try {
         if (useDatabase) {
@@ -89,19 +119,16 @@ const App: React.FC = () => {
           }
         }
       } catch (error) {
-        console.warn('Server save failed, using localStorage:', error);
-      }
-
-      // Fallback to localStorage
-      try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-      } catch (error) {
-        console.error('Error saving data:', error);
+        console.warn('Server save failed:', error);
+        if ((error as Error).message.toLowerCase().includes('unauthorized')) {
+          await api.logout();
+          setCurrentUser(null);
+        }
       }
     };
 
     saveData();
-  }, [state, useDatabase]);
+  }, [state, useDatabase, currentUser, hasLoadedData]);
 
   const addCustomer = (customer: Customer) => {
     setState(prev => ({ ...prev, customers: [...prev.customers, customer] }));
@@ -202,9 +229,52 @@ const App: React.FC = () => {
     return state.customers.find(c => c.id === currentView.customerId);
   }, [state.customers, currentView.customerId]);
 
+  const handleLogin = async (username: string, password: string) => {
+    const user = await api.login(username, password);
+    setCurrentUser(user);
+    setCurrentView({ type: 'dashboard' });
+  };
+
+  const handleLogout = async () => {
+    await api.logout();
+    setCurrentUser(null);
+    setState(emptyState);
+    setCurrentView({ type: 'dashboard' });
+    setHasLoadedData(false);
+  };
+
+  if (authChecking) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center text-slate-200">
+        <div className="text-center">
+          <div className="w-10 h-10 border-2 border-slate-700 border-t-indigo-500 rounded-full animate-spin mx-auto mb-4" />
+          <p className="text-sm font-medium tracking-wide">Restoring session...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!currentUser) {
+    return <AuthPortal onLogin={handleLogin} />;
+  }
+
+  if (isLoadingData) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center text-slate-200">
+        <div className="text-center">
+          <div className="w-10 h-10 border-2 border-slate-700 border-t-indigo-500 rounded-full animate-spin mx-auto mb-4" />
+          <p className="text-sm font-medium tracking-wide">Loading your workspace...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className={isDarkMode ? 'dark' : ''}>
       <Layout 
+        projectName={currentUser.projectName}
+        userDisplayName={currentUser.displayName}
+        userRole={currentUser.role}
         onLogoClick={() => setCurrentView({ type: 'dashboard' })}
         onViewReport={() => setCurrentView({ type: 'report' })}
         onViewSummary={() => setCurrentView({ type: 'summary' })}
@@ -212,6 +282,7 @@ const App: React.FC = () => {
         onViewBanks={() => setCurrentView({ type: 'banks' })}
         onViewDaily={() => setCurrentView({ type: 'daily' })}
         onToggleDarkMode={() => setIsDarkMode(!isDarkMode)}
+        onLogout={handleLogout}
         isDarkMode={isDarkMode}
         onBackup={handleBackup}
         onRestore={handleRestore}
@@ -223,7 +294,7 @@ const App: React.FC = () => {
           currentView.type === 'summary' ? 'Customer Summary Report' :
           currentView.type === 'banks' ? 'Bank Statement Manager' :
           currentView.type === 'daily' ? 'Daily Buy/Sell Sheet' :
-          'New Jehlum Gold Smith'
+          currentUser.projectName
         }
       >
         {currentView.type === 'dashboard' ? (
