@@ -1,0 +1,9 @@
+node_modules
+dist
+data
+.vite
+out
+.env.local
+.git
+.gitignore
+*.md
