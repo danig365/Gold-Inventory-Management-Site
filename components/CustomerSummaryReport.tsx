@@ -97,7 +97,10 @@ const CustomerSummaryReport: React.FC<CustomerSummaryReportProps> = ({ customers
       'Gold Balance (g)': Math.abs(c.goldBal).toFixed(3),
       'Gold Status': c.goldBal >= 0 ? 'Gold laina hai' : 'Gold daina hai',
       'Silver Balance (g)': Math.abs(c.silverBal).toFixed(2),
-      'Silver Status': c.silverBal >= 0 ? 'Silver laina hai' : 'Silver daina hai'
+      'Silver Status': c.silverBal >= 0 ? 'Silver laina hai' : 'Silver daina hai',
+      'Net Gold': c.goldBal.toFixed(3),
+      'Net Silver': c.silverBal.toFixed(2),
+      'Net Cash Balance': Math.round(c.cashBal)
     }));
     const ws = XLSX.utils.json_to_sheet(data);
     const wb = XLSX.utils.book_new();
@@ -107,7 +110,7 @@ const CustomerSummaryReport: React.FC<CustomerSummaryReportProps> = ({ customers
   };
 
   const exportToPDF = () => {
-    const doc = new jsPDF();
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
     doc.setFontSize(22);
     doc.setTextColor(30, 41, 59);
     doc.setFont('helvetica', 'bold');
@@ -124,18 +127,36 @@ const CustomerSummaryReport: React.FC<CustomerSummaryReportProps> = ({ customers
 
     autoTable(doc, {
       startY: 40,
-      head: [['Customer', 'Phone', 'Gold Bal (g)', 'Silver Bal (g)', 'Cash Bal (PKR)', 'Status']],
+      head: [[
+        'Customer',
+        'Phone',
+        'Cash Balance',
+        'Status',
+        'Gold Balance (g)',
+        'Gold Status',
+        'Silver Balance (g)',
+        'Silver Status',
+        'Net Gold',
+        'Net Silver',
+        'Net Cash Balance'
+      ]],
       body: reportData.map(c => [
         c.name.toUpperCase(),
         c.phone,
+        Math.round(Math.abs(c.cashBal)).toLocaleString(),
+        c.cashBal >= 0 ? 'LAINE' : 'DAINE',
+        Math.abs(c.goldBal).toFixed(3),
+        c.goldBal >= 0 ? 'LAINA' : 'DAINA',
+        Math.abs(c.silverBal).toFixed(2),
+        c.silverBal >= 0 ? 'LAINA' : 'DAINA',
         c.goldBal.toFixed(3),
         c.silverBal.toFixed(2),
-        Math.round(Math.abs(c.cashBal)).toLocaleString(),
-        c.cashBal >= 0 ? 'LAINE' : 'DAINE'
+        Math.round(c.cashBal).toLocaleString()
       ]),
       theme: 'grid',
       headStyles: { fillColor: [67, 56, 202] },
-      styles: { fontSize: 8 }
+      styles: { fontSize: 6, cellPadding: 1.2 },
+      margin: { top: 40, left: 6, right: 6 }
     });
     doc.save(`Summary_Report_${format(new Date(), 'yyyyMMdd')}.pdf`);
     setIsExportMenuOpen(false);

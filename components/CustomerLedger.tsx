@@ -15,6 +15,14 @@ const parseDateString = (dateStr: string): Date => {
   return new Date(year, month - 1, day);
 };
 
+const getTodayDateString = () => {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = String(today.getMonth() + 1).padStart(2, '0');
+  const day = String(today.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 interface CustomerLedgerProps {
   customer: Customer;
   transactions: Transaction[];
@@ -75,35 +83,29 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
 
   const draftKey = `NewJehlum_draft_tx_${customer.id}`;
 
-  const defaultFormData: TransactionFormData = {
-    weight: 0, 
-    rate: 0,   
+  const createDefaultFormData = (date: string = getTodayDateString()): TransactionFormData => ({
+    weight: 0,
+    rate: 0,
     amount: 0,
     remarks: '',
-    date: (() => {
-      const today = new Date();
-      const year = today.getFullYear();
-      const month = String(today.getMonth() + 1).padStart(2, '0');
-      const day = String(today.getDate()).padStart(2, '0');
-      return `${year}-${month}-${day}`;
-    })(),
+    date,
     ratePerTola: 0,
     paymentMethod: PaymentMethod.CASH,
     bankId: '',
     transferType: TransferType.TF,
     referenceNo: '',
-    direction: 'IN' as 'IN' | 'OUT',
+    direction: 'IN',
     impureWeight: 0,
     point: 0,
-    karat: 24
-  };
+    karat: 24,
+  });
 
   const [activeForm, setActiveForm] = useState<TransactionType>(() => {
     const saved = localStorage.getItem(`${draftKey}_type`);
     return saved ? (saved as TransactionType) : TransactionType.BUY_GOLD;
   });
 
-  const [formData, setFormData] = useState<TransactionFormData>(defaultFormData);
+  const [formData, setFormData] = useState<TransactionFormData>(() => createDefaultFormData());
 
   const [weightInput, setWeightInput] = useState('');
   const [kgInput, setKgInput] = useState('');
@@ -152,6 +154,25 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
     }
   }, [formData, activeForm, editingTransaction, draftKey]);
 
+  // Handle Backspace key to go back to customer directory
+  useEffect(() => {
+    const handleBackspace = (e: KeyboardEvent) => {
+      // Only trigger if not in a text input or textarea
+      const target = e.target as HTMLElement;
+      const isTypingInput = target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement;
+      
+      if (e.key === 'Backspace' && !isTypingInput) {
+        e.preventDefault();
+        onBack();
+      }
+    };
+
+    window.addEventListener('keydown', handleBackspace);
+    return () => {
+      window.removeEventListener('keydown', handleBackspace);
+    };
+  }, [onBack]);
+
   const syncInputs = (fd: typeof formData) => {
     setWeightInput(fd.weight > 0 ? fd.weight.toString() : '');
     setKgInput(fd.weight > 0 ? (fd.weight / 1000).toString() : '');
@@ -198,10 +219,10 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
     }
   }, [editingTransaction]);
 
-  const handleTabChange = (type: TransactionType) => {
+  const handleTabChange = (type: TransactionType, dateOverride?: string) => {
     setActiveForm(type);
     setRefError(null);
-    const clearedFd = { ...defaultFormData, date: formData.date };
+    const clearedFd = createDefaultFormData(dateOverride ?? formData.date);
     setFormData(clearedFd);
     setWeightMode('GRAM');
     setRateMode('TOLA');
@@ -218,7 +239,7 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
 
   const openQuickEntry = (type: TransactionType) => {
     setEditingTransaction(null);
-    handleTabChange(type);
+    handleTabChange(type, getTodayDateString());
     setIsTxModalOpen(true);
   };
 
@@ -456,9 +477,9 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
     else onAddTransaction(tx);
     localStorage.removeItem(draftKey);
     localStorage.removeItem(`${draftKey}_type`);
-    setFormData({ ...defaultFormData, date: formData.date });
+    setFormData(createDefaultFormData(formData.date));
     setRateInput('');
-    syncInputs({ ...defaultFormData, date: formData.date });
+    syncInputs(createDefaultFormData(formData.date));
     setIsTxModalOpen(false);
     setEditingTransaction(null);
   };

@@ -6,6 +6,14 @@ import * as XLSX from 'xlsx';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
+const getTodayDateString = () => {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = String(today.getMonth() + 1).padStart(2, '0');
+  const day = String(today.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 interface BankLedgerProps {
   banks: Bank[];
   transactions: Transaction[];
@@ -33,7 +41,7 @@ const BankLedger: React.FC<BankLedgerProps> = ({ banks, transactions, customers,
   const [bankEntry, setBankEntry] = useState({
     type: 'WITHDRAW' as 'WITHDRAW' | 'DEPOSIT',
     amount: 0,
-    date: format(new Date(), 'yyyy-MM-dd'),
+    date: getTodayDateString(),
     remarks: '',
     transferType: TransferType.TF,
     targetBankId: '',
@@ -230,15 +238,27 @@ const BankLedger: React.FC<BankLedgerProps> = ({ banks, transactions, customers,
     });
 
     setIsEntryModalOpen(false);
-    setBankEntry({ ...bankEntry, amount: 0, remarks: '', referenceNo: '' });
+    setBankEntry({
+      type: 'WITHDRAW',
+      amount: 0,
+      date: getTodayDateString(),
+      remarks: '',
+      transferType: TransferType.TF,
+      targetBankId: '',
+      referenceNo: ''
+    });
   };
 
   const openActionModal = (type: 'WITHDRAW' | 'DEPOSIT', bankId?: string) => {
-    setBankEntry(prev => ({ 
-      ...prev, 
-      type, 
-      targetBankId: bankId || (selectedBankId === 'ALL' ? '' : selectedBankId) 
-    }));
+    setBankEntry({
+      type,
+      amount: 0,
+      date: getTodayDateString(),
+      remarks: '',
+      transferType: TransferType.TF,
+      targetBankId: bankId || (selectedBankId === 'ALL' ? '' : selectedBankId),
+      referenceNo: ''
+    });
     setIsEntryModalOpen(true);
   };
 
