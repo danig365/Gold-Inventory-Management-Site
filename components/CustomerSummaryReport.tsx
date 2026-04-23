@@ -102,6 +102,19 @@ const CustomerSummaryReport: React.FC<CustomerSummaryReportProps> = ({ customers
       'Net Silver': c.silverBal.toFixed(2),
       'Net Cash Balance': Math.round(c.cashBal)
     }));
+    data.push({
+      'Customer': 'TOTAL',
+      'Phone': '',
+      'Cash Balance': Math.abs(totals.cash),
+      'Status': totals.cash >= 0 ? 'Payment Laine hai' : 'Payment daine hai',
+      'Gold Balance (g)': Math.abs(totals.gold).toFixed(3),
+      'Gold Status': totals.gold >= 0 ? 'Gold laina hai' : 'Gold daina hai',
+      'Silver Balance (g)': Math.abs(totals.silver).toFixed(2),
+      'Silver Status': totals.silver >= 0 ? 'Silver laina hai' : 'Silver daina hai',
+      'Net Gold': totals.gold.toFixed(3),
+      'Net Silver': totals.silver.toFixed(2),
+      'Net Cash Balance': Math.round(totals.cash)
+    });
     const ws = XLSX.utils.json_to_sheet(data);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Summary');
@@ -153,8 +166,22 @@ const CustomerSummaryReport: React.FC<CustomerSummaryReportProps> = ({ customers
         c.silverBal.toFixed(2),
         Math.round(c.cashBal).toLocaleString()
       ]),
+      foot: [[
+        'TOTAL',
+        '',
+        Math.round(Math.abs(totals.cash)).toLocaleString(),
+        totals.cash >= 0 ? 'LAINE' : 'DAINE',
+        Math.abs(totals.gold).toFixed(3),
+        totals.gold >= 0 ? 'LAINA' : 'DAINA',
+        Math.abs(totals.silver).toFixed(2),
+        totals.silver >= 0 ? 'LAINA' : 'DAINA',
+        totals.gold.toFixed(3),
+        totals.silver.toFixed(2),
+        Math.round(totals.cash).toLocaleString()
+      ]],
       theme: 'grid',
       headStyles: { fillColor: [67, 56, 202] },
+      footStyles: { fontStyle: 'bold', fillColor: [241, 245, 249], textColor: [30, 41, 59] },
       styles: { fontSize: 6, cellPadding: 1.2 },
       margin: { top: 40, left: 6, right: 6 }
     });

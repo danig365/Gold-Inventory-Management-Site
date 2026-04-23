@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { Customer, Transaction, TransactionType } from '../types';
-import { UserPlus, Search, ArrowRight, User, Scale, Coins, Wallet, Landmark, Download, FileSpreadsheet, FileText, ChevronDown, Edit2, Trash2, AlertTriangle, X } from 'lucide-react';
+import { UserPlus, Search, ArrowRight, User, Scale, Coins, Wallet, Landmark, Download, FileSpreadsheet, FileText, ChevronDown, Edit2, Trash2, AlertTriangle, X, Share2 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -16,6 +16,7 @@ interface DashboardProps {
 }
 
 const DRAFT_CUSTOMER_KEY = 'haroon_draft_customer';
+const DESKTOP_SHARE_HINT_KEY = 'newjehlum_whatsapp_desktop_hint_seen';
 
 const Dashboard: React.FC<DashboardProps> = ({ customers, transactions, onSelectCustomer, onAddCustomer, onUpdateCustomer, onDeleteCustomer }) => {
   const [searchTerm, setSearchTerm] = useState('');
@@ -114,6 +115,76 @@ const Dashboard: React.FC<DashboardProps> = ({ customers, transactions, onSelect
   const handleDeleteClick = (e: React.MouseEvent, customerId: string) => {
     e.stopPropagation();
     setDeletingCustomerId(customerId);
+  };
+
+  const normalizeWhatsAppNumber = (phone?: string) => {
+    if (!phone) return '';
+    let digits = phone.replace(/\D/g, '');
+    if (!digits) return '';
+
+    if (digits.startsWith('00')) digits = digits.slice(2);
+    if (digits.startsWith('0')) digits = `92${digits.slice(1)}`;
+
+    return digits;
+  };
+
+  const isMobileDevice = () => /Android|iPhone|iPad|iPod|Opera Mini|IEMobile|Mobile/i.test(navigator.userAgent);
+
+  const copyMessageFallback = async (message: string) => {
+    if (navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(message);
+        return true;
+      } catch {
+        return false;
+      }
+    }
+    return false;
+  };
+
+  const handleShareWhatsApp = async (e: React.MouseEvent, c: typeof customerStats[0]) => {
+    e.stopPropagation();
+    const cashStatus = c.cashBalance >= 0 ? 'Laine (Receivable)' : 'Daine (Payable)';
+    const message = [
+      `*New Jehlum Gold Smith*`,
+      `📋 *Ledger Summary: ${c.name}*`,
+      ``,
+      `💰 Cash Balance: Rs. ${Math.round(Math.abs(c.cashBalance)).toLocaleString()} (${cashStatus})`,
+      `🥇 Gold Balance: ${Math.abs(c.goldBalance).toFixed(3)}g`,
+      `🥈 Silver Balance: ${Math.abs(c.silverBalance).toFixed(2)}g`,
+      ``,
+      `📅 Date: ${new Date().toLocaleDateString('en-PK')}`,
+    ].join('\n');
+
+    const normalizedPhone = normalizeWhatsAppNumber(c.phone);
+    const params = new URLSearchParams({ text: message });
+    if (normalizedPhone) params.set('phone', normalizedPhone);
+
+    const isMobile = isMobileDevice();
+    const popup = window.open(`https://api.whatsapp.com/send?${params.toString()}`, '_blank', 'noopener,noreferrer');
+
+    if (isMobile) return;
+
+    const copied = await copyMessageFallback(message);
+    const hintAlreadyShown = sessionStorage.getItem(DESKTOP_SHARE_HINT_KEY) === '1';
+
+    if (!popup) {
+      if (copied) {
+        window.alert('Popup blocked. Ledger message has been copied. Open WhatsApp and paste with Ctrl+V.');
+      } else {
+        window.prompt('Popup blocked. Copy this ledger message and paste it into WhatsApp:', message);
+      }
+      return;
+    }
+
+    if (!hintAlreadyShown) {
+      sessionStorage.setItem(DESKTOP_SHARE_HINT_KEY, '1');
+      if (copied) {
+        window.alert('WhatsApp opened. If text is not prefilled on desktop app, paste with Ctrl+V (message copied).');
+      } else {
+        window.alert('WhatsApp opened. If text is not prefilled on desktop app, copy manually and paste with Ctrl+V.');
+      }
+    }
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -227,6 +298,20 @@ const Dashboard: React.FC<DashboardProps> = ({ customers, transactions, onSelect
             </p>
           </div>
         </div>
+
+        <div className="w-px h-8 bg-gray-100 dark:bg-slate-800 hidden sm:block"></div>
+
+        <div className="flex items-center space-x-3">
+          <div className="p-2.5 bg-slate-100 dark:bg-slate-800 rounded-xl text-slate-500 dark:text-slate-400">
+            <Coins size={20} />
+          </div>
+          <div>
+            <p className="text-xs font-semibold tracking-wide text-gray-500 dark:text-slate-400 leading-none mb-1">Silver Ledger</p>
+            <p className="text-base font-bold text-gray-900 dark:text-slate-100 leading-none">
+              {Math.abs(totals.silver).toFixed(2)}g
+            </p>
+          </div>
+        </div>
       </div>
 
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 pt-2">
@@ -287,6 +372,13 @@ const Dashboard: React.FC<DashboardProps> = ({ customers, transactions, onSelect
                 <p className="text-xs font-medium text-gray-500 dark:text-slate-400 tracking-wide">{c.address || 'No Address'}</p>
               </div>
               <div className="flex items-center space-x-1.5">
+                 <button 
+                  onClick={(e) => handleShareWhatsApp(e, c)}
+                  className="p-2 bg-green-50 dark:bg-slate-800 text-green-600 dark:text-green-400 rounded-lg hover:bg-green-600 dark:hover:bg-green-500 hover:text-white transition-all shadow-sm"
+                  title="Share on WhatsApp"
+                 >
+                   <Share2 size={14} />
+                 </button>
                  <button 
                   onClick={(e) => handleEditClick(e, c)}
                   className="p-2 bg-indigo-50 dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 rounded-lg hover:bg-indigo-600 dark:hover:bg-indigo-500 hover:text-white transition-all shadow-sm"

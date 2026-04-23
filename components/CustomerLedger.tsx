@@ -113,6 +113,7 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
   const [impureInput, setImpureInput] = useState('');
   const [pointInput, setPointInput] = useState('');
   const [karatInput, setKaratInput] = useState('24');
+  const [amountInput, setAmountInput] = useState('');
 
   const isMetalTrade = useMemo(() => {
     return [TransactionType.BUY_GOLD, TransactionType.SELL_GOLD, TransactionType.BUY_SILVER, TransactionType.SELL_SILVER].includes(activeForm);
@@ -179,6 +180,7 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
     setImpureInput(fd.impureWeight > 0 ? fd.impureWeight.toString() : '');
     setPointInput(fd.point > 0 ? fd.point.toString() : '');
     setKaratInput(fd.karat ? fd.karat.toString() : '24');
+    setAmountInput(fd.amount > 0 ? fd.amount.toString() : '');
   };
 
   const syncRateInput = (fd: TransactionFormData, mode: 'GRAM' | 'TOLA') => {
@@ -227,6 +229,7 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
     setWeightMode('GRAM');
     setRateMode('TOLA');
     setRateInput('');
+    setAmountInput('');
     setSettleMode('POINT');
     setIsCalcMode(type === TransactionType.GOLD_SETTLEMENT || type === TransactionType.SILVER_SETTLEMENT);
     syncInputs(clearedFd);
@@ -479,6 +482,7 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
     localStorage.removeItem(`${draftKey}_type`);
     setFormData(createDefaultFormData(formData.date));
     setRateInput('');
+    setAmountInput('');
     syncInputs(createDefaultFormData(formData.date));
     setIsTxModalOpen(false);
     setEditingTransaction(null);
@@ -504,14 +508,16 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
     const data = ledgerData.map(t => ({
       'Sr No': t.srNo,
       'Date': format(parseDateString(t.date), 'dd/MM/yyyy'),
-      'Description': formatType(t.type),
+      'Description': t.remarks ? `${formatType(t.type)} - ${t.remarks}` : formatType(t.type),
       'Impure (g)': t.impureWeight || '-',
       'Point/Karat': t.point || t.karat || '-',
       'Pure (g)': (t.goldWeight || t.goldIn || t.goldOut || t.silverWeight || t.silverIn || t.silverOut || 0).toFixed(3),
       'Rate': getDisplayRate(t).toFixed(2),
       'Receivable (Rs)': t.cashIn || (t.type.includes('SELL') ? t.tradeValue : 0),
       'Payable (Rs)': t.cashOut || (t.type.includes('BUY') ? t.tradeValue : 0),
-      'Cash Balance (Rs)': t.remainingCash
+      'Cash Balance (Rs)': t.remainingCash,
+      'Gold Balance (g)': t.remainingGold.toFixed(3),
+      'Silver Balance (g)': t.remainingSilver.toFixed(2)
     }));
     const ws = XLSX.utils.json_to_sheet(data);
     const wb = XLSX.utils.book_new();
@@ -547,14 +553,16 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
     const tableRows = ledgerData.map(t => [
         t.srNo,
         format(parseDateString(t.date), 'dd/MM/yy'),
-        formatType(t.type),
+        t.remarks ? `${formatType(t.type)}\n${t.remarks}` : formatType(t.type),
         t.impureWeight?.toFixed(2) || '-',
         t.point ? `${t.point} (P)` : (t.karat ? `${t.karat} (K)` : '-'),
         (t.goldWeight || t.goldIn || t.goldOut || t.silverWeight || t.silverIn || t.silverOut || 0).toFixed(3),
       getDisplayRate(t).toLocaleString(undefined, { maximumFractionDigits: 2 }),
         (t.cashIn || (t.type.includes('SELL') ? t.tradeValue : 0))?.toLocaleString() || '0',
         (t.cashOut || (t.type.includes('BUY') ? t.tradeValue : 0))?.toLocaleString() || '0',
-        t.remainingCash.toLocaleString()
+        t.remainingCash.toLocaleString(),
+        t.remainingGold.toFixed(3),
+        t.remainingSilver.toFixed(2)
     ]);
 
     const footerPure = ledgerData.reduce((sum, t) => sum + (t.goldWeight || t.goldIn || t.goldOut || t.silverWeight || t.silverIn || t.silverOut || 0), 0);
@@ -567,12 +575,14 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
         '',
         footerIn.toLocaleString(),
         footerOut.toLocaleString(),
-        ledgerData[ledgerData.length - 1]?.remainingCash.toLocaleString() || '0'
+        ledgerData[ledgerData.length - 1]?.remainingCash.toLocaleString() || '0',
+        ledgerData[ledgerData.length - 1]?.remainingGold.toFixed(3) || '0',
+        ledgerData[ledgerData.length - 1]?.remainingSilver.toFixed(2) || '0'
     ]);
 
     autoTable(doc, {
       startY: 55,
-      head: [['Sr', 'Date', 'Description', 'Impure (g)', 'Point/Karat', 'Pure', 'Rate', 'Receivable', 'Payable', 'Cash Balance']],
+      head: [['Sr', 'Date', 'Description', 'Impure (g)', 'Point/Karat', 'Pure', 'Rate', 'Receivable', 'Payable', 'Cash Balance', 'Gold Bal', 'Silver Bal']],
       body: tableRows,
       theme: 'grid',
       headStyles: { fillColor: [67, 56, 202] },
@@ -599,17 +609,17 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
     
     doc.text(`Cash Balance: Rs. ${Math.round(Math.abs(totals.cash)).toLocaleString()}`, summaryX, finalY + summaryLineHeight);
     doc.setFont('helvetica', 'bold');
-    doc.text(`(${totals.cash >= 0 ? 'PAYABLE/LAINE HAI' : 'RECEIVABLE/DAINE HAI'})`, summaryX + 100, finalY + summaryLineHeight);
+    doc.text(`(${totals.cash >= 0 ? 'RECEIVABLE/LAINE HAI' : 'PAYABLE/DAINE HAI'})`, summaryX + 100, finalY + summaryLineHeight);
     
     doc.setFont('helvetica', 'normal');
     doc.text(`Gold Balance: ${Math.abs(totals.gold).toFixed(3)}g`, summaryX, finalY + summaryLineHeight * 2);
     doc.setFont('helvetica', 'bold');
-    doc.text(`(${totals.gold >= 0 ? 'PAYABLE/LAINA HAI' : 'RECEIVABLE/DAINA HAI'})`, summaryX + 100, finalY + summaryLineHeight * 2);
+    doc.text(`(${totals.gold >= 0 ? 'RECEIVABLE/LAINA HAI' : 'PAYABLE/DAINA HAI'})`, summaryX + 100, finalY + summaryLineHeight * 2);
     
     doc.setFont('helvetica', 'normal');
     doc.text(`Silver Balance: ${Math.abs(totals.silver).toFixed(3)}g`, summaryX, finalY + summaryLineHeight * 3);
     doc.setFont('helvetica', 'bold');
-    doc.text(`(${totals.silver >= 0 ? 'PAYABLE/LAINA HAI' : 'RECEIVABLE/DAINA HAI'})`, summaryX + 100, finalY + summaryLineHeight * 3);
+    doc.text(`(${totals.silver >= 0 ? 'RECEIVABLE/LAINA HAI' : 'PAYABLE/DAINA HAI'})`, summaryX + 100, finalY + summaryLineHeight * 3);
 
     doc.save(`${customer.name}_Ledger.pdf`);
     setIsExportMenuOpen(false);
@@ -772,12 +782,14 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
                 <th className="px-3 py-4 text-right border border-gray-300 dark:border-slate-700">Receivable (Rs)</th>
                 <th className="px-3 py-4 text-right border border-gray-300 dark:border-slate-700">Payable (Rs)</th>
                 <th className="px-3 py-4 text-right border border-gray-300 dark:border-slate-700">Cash Balance (Rs)</th>
+                <th className="px-3 py-4 text-right border border-gray-300 dark:border-slate-700">Gold Bal (g)</th>
+                <th className="px-3 py-4 text-right border border-gray-300 dark:border-slate-700">Silver Bal (g)</th>
                 <th className="px-3 py-4 text-center border border-gray-300 dark:border-slate-700">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-300 dark:divide-slate-800">
               {ledgerData.length === 0 ? (
-                <tr><td colSpan={11} className="px-4 py-12 text-center text-gray-400 dark:text-slate-600 font-medium border border-gray-300 dark:border-slate-800 transition-colors">No transactions recorded</td></tr>
+                <tr><td colSpan={13} className="px-4 py-12 text-center text-gray-400 dark:text-slate-600 font-medium border border-gray-300 dark:border-slate-800 transition-colors">No transactions recorded</td></tr>
               ) : (
                 ledgerData.map((t, index) => (
                   <tr key={t.id} className={`transition-colors group border-b border-gray-300 dark:border-slate-800 ${usePlainTable ? 'bg-white dark:bg-slate-900 hover:bg-gray-50 dark:hover:bg-slate-800' : (index % 2 === 0 ? 'bg-[#CAF0F8] dark:bg-indigo-950/40' : 'bg-[#90E0EF] dark:bg-indigo-900/20')}`}>
@@ -805,6 +817,12 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
                       <span className={`text-[8px] ml-1 font-bold ${t.remainingCash >= 0 ? 'text-green-700 dark:text-green-400' : 'text-rose-700 dark:text-rose-400'}`}>
                         {t.remainingCash >= 0 ? 'LAINE' : 'DAINE'}
                       </span>
+                    </td>
+                    <td className="px-3 py-2 text-right font-semibold text-yellow-700 dark:text-yellow-400 border-r border-gray-300 dark:border-slate-800">
+                      {Math.abs(t.remainingGold).toFixed(3)}
+                    </td>
+                    <td className="px-3 py-2 text-right font-semibold text-slate-700 dark:text-slate-400 border-r border-gray-300 dark:border-slate-800">
+                      {Math.abs(t.remainingSilver).toFixed(2)}
                     </td>
                     <td className="px-3 py-2 text-center transition-colors">
                       <div className="flex justify-center space-x-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
@@ -1004,7 +1022,7 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
                        </div>
                     )}
                     <div className="relative">
-                        <input required className="w-full p-5 border-2 border-indigo-100 dark:border-indigo-900 bg-indigo-50/20 dark:bg-indigo-950/20 rounded-2xl font-bold text-3xl text-indigo-900 dark:text-indigo-300 shadow-inner focus:ring-1 focus:ring-indigo-500 outline-none placeholder:text-indigo-200 dark:placeholder:text-indigo-900" type="text" value={formData.amount || ''} onChange={e => setFormData({...formData, amount: evaluateMath(e.target.value)})} placeholder="0.00" />
+                        <input required className="w-full p-5 border-2 border-indigo-100 dark:border-indigo-900 bg-indigo-50/20 dark:bg-indigo-950/20 rounded-2xl font-bold text-3xl text-indigo-900 dark:text-indigo-300 shadow-inner focus:ring-1 focus:ring-indigo-500 outline-none placeholder:text-indigo-200 dark:placeholder:text-indigo-900" type="text" value={amountInput} onChange={e => { setAmountInput(e.target.value); setFormData({...formData, amount: evaluateMath(e.target.value)}); }} placeholder="0.00" />
                         <div className="absolute right-5 top-1/2 -translate-y-1/2 text-indigo-200 dark:text-indigo-900 font-semibold text-sm">PKR</div>
                     </div>
                  </div>
