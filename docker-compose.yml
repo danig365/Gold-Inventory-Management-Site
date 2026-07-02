@@ -26,6 +26,15 @@ services:
       - NODE_ENV=production
       - PORT=3001
       - DATABASE_URL=postgresql://ledger:ledger@db:5432/ledger
+      - BACKUP_DIR=/app/backups
+      - BACKUP_INTERVAL_MS=3600000
+      - BACKUP_RETENTION_COUNT=48
+      - ATTACHMENTS_DIR=/app/attachments
+    volumes:
+      - backupsdata:/app/backups
+      - attachmentsdata:/app/attachments
 
 volumes:
   pgdata:
+  backupsdata:
+  attachmentsdata:

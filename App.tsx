@@ -7,6 +7,7 @@ import MonthlyReport from './components/MonthlyReport';
 import DailyTradeReport from './components/DailyTradeReport';
 import CustomerSummaryReport from './components/CustomerSummaryReport';
 import BankLedger from './components/BankLedger';
+import BackupStatus from './components/BackupStatus';
 import { Layout } from './components/Layout';
 import { AuthPortal } from './components/AuthPortal';
 import { api } from './api';
@@ -30,11 +31,16 @@ const App: React.FC = () => {
   const [hasLoadedData, setHasLoadedData] = useState(false);
 
   const [useDatabase, setUseDatabase] = useState(true);
+
+  const [showBackupPanel, setShowBackupPanel] = useState(false);
+  const [lastBackupAt, setLastBackupAt] = useState<string | null>(null);
   
   const [currentView, setCurrentView] = useState<{
     type: 'dashboard' | 'ledger' | 'report' | 'summary' | 'banks' | 'daily';
     customerId?: string;
+    metalFilter?: 'ALL' | 'GOLD' | 'SILVER' | 'COPPER';
   }>({ type: 'dashboard' });
+  const [dashboardMetalFilter, setDashboardMetalFilter] = useState<'ALL' | 'GOLD' | 'SILVER' | 'COPPER'>('ALL');
 
   const [state, setState] = useState<AppState>(emptyState);
 
@@ -92,9 +98,21 @@ const App: React.FC = () => {
         setHasLoadedData(true);
         setIsLoadingData(false);
       }
+
+      // Fetch latest backup time for sidebar health indicator
+      try {
+        const backups = await api.listMyBackups();
+        if (backups.length > 0) setLastBackupAt(backups[0].createdAt);
+      } catch {
+        // Non-critical — sidebar dot stays grey
+      }
     };
 
     loadData();
+  }, [currentUser]);
+
+  useEffect(() => {
+    document.title = currentUser?.projectName ? `${currentUser.projectName}` : 'Gold Smith';
   }, [currentUser]);
 
   useEffect(() => {
@@ -172,7 +190,8 @@ const App: React.FC = () => {
   };
 
   const addTransaction = (transaction: Transaction) => {
-    setState(prev => ({ ...prev, transactions: [...prev.transactions, transaction] }));
+    const withTimestamp: Transaction = { ...transaction, createdAt: transaction.createdAt || new Date().toISOString() };
+    setState(prev => ({ ...prev, transactions: [...prev.transactions, withTimestamp] }));
   };
 
   const updateTransaction = (updatedTransaction: Transaction) => {
@@ -287,6 +306,8 @@ const App: React.FC = () => {
         onBackup={handleBackup}
         onRestore={handleRestore}
         useDatabase={useDatabase}
+        onOpenBackupPanel={() => setShowBackupPanel(true)}
+        lastBackupAt={lastBackupAt}
         activeView={currentView.type === 'ledger' ? 'dashboard' : currentView.type}
         title={
           currentView.type === 'ledger' ? `Ledger: ${currentCustomer?.name}` : 
@@ -298,31 +319,43 @@ const App: React.FC = () => {
         }
       >
         {currentView.type === 'dashboard' ? (
-          <Dashboard 
-            customers={state.customers} 
+          <Dashboard
+            customers={state.customers}
             transactions={state.transactions}
-            onSelectCustomer={(id) => setCurrentView({ type: 'ledger', customerId: id })}
+            banks={state.banks}
+            onSelectCustomer={(id, mf) => setCurrentView({ type: 'ledger', customerId: id, metalFilter: mf })}
             onAddCustomer={addCustomer}
             onUpdateCustomer={updateCustomer}
             onDeleteCustomer={deleteCustomer}
+            projectName={currentUser.projectName}
+            shopPhone={currentUser.phone || ''}
+            metalFilter={dashboardMetalFilter}
+            onMetalFilterChange={setDashboardMetalFilter}
           />
         ) : currentView.type === 'report' ? (
           <MonthlyReport 
             transactions={state.transactions}
             customers={state.customers}
+            projectName={currentUser.projectName}
+            shopPhone={currentUser.phone || ''}
           />
         ) : currentView.type === 'daily' ? (
           <DailyTradeReport 
             transactions={state.transactions}
             customers={state.customers}
+            projectName={currentUser.projectName}
+            shopPhone={currentUser.phone || ''}
           />
         ) : currentView.type === 'summary' ? (
           <CustomerSummaryReport
             customers={state.customers}
             transactions={state.transactions}
+            banks={state.banks}
+            projectName={currentUser.projectName}
+            shopPhone={currentUser.phone || ''}
           />
         ) : currentView.type === 'banks' ? (
-          <BankLedger 
+          <BankLedger
             banks={state.banks}
             transactions={state.transactions}
             customers={state.customers}
@@ -330,11 +363,16 @@ const App: React.FC = () => {
             onUpdateBank={updateBank}
             onDeleteBank={deleteBank}
             onAddTransaction={addTransaction}
+            onUpdateTransaction={updateTransaction}
+            onDeleteTransaction={deleteTransaction}
+            projectName={currentUser.projectName}
+            shopPhone={currentUser.phone || ''}
           />
         ) : (
           currentCustomer && (
-            <CustomerLedger 
+            <CustomerLedger
               customer={currentCustomer}
+              customers={state.customers}
               transactions={state.transactions.filter(t => t.customerId === currentCustomer.id)}
               allTransactions={state.transactions}
               banks={state.banks}
@@ -342,10 +380,24 @@ const App: React.FC = () => {
               onAddTransaction={addTransaction}
               onUpdateTransaction={updateTransaction}
               onDeleteTransaction={deleteTransaction}
+              projectName={currentUser.projectName}
+              shopPhone={currentUser.phone || ''}
+              metalFilter={currentView.metalFilter || 'ALL'}
             />
           )
         )}
       </Layout>
+
+      {/* Data Backup Panel */}
+      {showBackupPanel && (
+        <BackupStatus
+          onClose={() => setShowBackupPanel(false)}
+          onRestoreSuccess={(data: AppState) => {
+            setState(data);
+            setShowBackupPanel(false);
+          }}
+        />
+      )}
     </div>
   );
 };

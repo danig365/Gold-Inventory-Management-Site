@@ -1,4 +1,6 @@
 // API client - replaces Electron IPC calls with REST API calls
+import type { BackupEntry, RestoreResult } from './types';
+
 const API_BASE = '/api';
 const AUTH_TOKEN_KEY = 'ledger_auth_token';
 
@@ -174,5 +176,71 @@ export const api = {
     });
     if (res.status === 401) throw new Error('Unauthorized');
     return res.json();
+  },
+
+  async uploadAttachment(file: File): Promise<{ id: string; name: string }> {
+    const formData = new FormData();
+    formData.append('file', file);
+    const res = await apiFetch(`${API_BASE}/attachments`, {
+      method: 'POST',
+      body: formData,
+    });
+    if (res.status === 401) throw new Error('Unauthorized');
+    const data = await res.json();
+    if (!res.ok || !data?.success) {
+      throw new Error(data?.error || 'Failed to upload file');
+    }
+    return { id: data.id, name: data.name };
+  },
+
+  async downloadAttachment(id: string, name: string) {
+    const res = await apiFetch(`${API_BASE}/attachments/${encodeURIComponent(id)}`);
+    if (res.status === 401) throw new Error('Unauthorized');
+    if (!res.ok) throw new Error('Failed to download file');
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    a.click();
+    URL.revokeObjectURL(url);
+  },
+
+  // --- Server-side backup management (user self-service) ---
+
+  async listMyBackups(): Promise<BackupEntry[]> {
+    const res = await apiFetch(`${API_BASE}/backups`);
+    if (res.status === 401) throw new Error('Unauthorized');
+    if (!res.ok) throw new Error('Failed to list backups');
+    const data = await res.json();
+    return (data.backups || []) as BackupEntry[];
+  },
+
+  async createMyBackup(note?: string): Promise<BackupEntry> {
+    const res = await apiFetch(`${API_BASE}/backups/create`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ note: note || 'manual' }),
+    });
+    if (res.status === 401) throw new Error('Unauthorized');
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data?.error || 'Failed to create backup');
+    }
+    const data = await res.json();
+    return data.backup as BackupEntry;
+  },
+
+  async restoreMyBackup(backupId: string): Promise<RestoreResult> {
+    const res = await apiFetch(`${API_BASE}/backups/${encodeURIComponent(backupId)}/restore`, {
+      method: 'POST',
+    });
+    if (res.status === 401) throw new Error('Unauthorized');
+    if (res.status === 404) throw new Error('Backup not found');
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data?.error || 'Failed to restore backup');
+    }
+    return res.json() as Promise<RestoreResult>;
   },
 };

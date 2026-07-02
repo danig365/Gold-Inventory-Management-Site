@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Bank, Transaction, Customer, PaymentMethod, TransferType, TransactionType } from '../types';
-import { PlusCircle, Search, Landmark, FileText, Wallet, Calendar, Filter, X, ArrowUpRight, ArrowDownLeft, ChevronRight, TrendingDown, TrendingUp, Edit2, Trash2, Download, FileSpreadsheet, ChevronDown, AlertTriangle, Hash, Banknote, RotateCcw } from 'lucide-react';
+import { PlusCircle, Search, Landmark, FileText, Wallet, Calendar, Filter, X, ArrowUpRight, ArrowDownLeft, ChevronRight, TrendingDown, TrendingUp, Edit2, Trash2, Download, FileSpreadsheet, ChevronDown, AlertTriangle, Hash, Banknote, RotateCcw, Star } from 'lucide-react';
 import { format, isWithinInterval, parseISO, startOfDay, endOfDay } from 'date-fns';
 import * as XLSX from 'xlsx';
 import { jsPDF } from 'jspdf';
@@ -22,20 +22,41 @@ interface BankLedgerProps {
   onUpdateBank: (bank: Bank) => void;
   onDeleteBank: (id: string) => void;
   onAddTransaction: (transaction: Transaction) => void;
+  onUpdateTransaction: (transaction: Transaction) => void;
+  onDeleteTransaction: (id: string) => void;
+  projectName: string;
+  shopPhone: string;
 }
 
-const BankLedger: React.FC<BankLedgerProps> = ({ banks, transactions, customers, onAddBank, onUpdateBank, onDeleteBank, onAddTransaction }) => {
+const BankLedger: React.FC<BankLedgerProps> = ({ banks, transactions, customers, onAddBank, onUpdateBank, onDeleteBank, onAddTransaction, onUpdateTransaction, onDeleteTransaction, projectName, shopPhone }) => {
   // Navigation & Modal State
   const [selectedBankId, setSelectedBankId] = useState<string | 'ALL'>(banks[0]?.id || 'ALL');
   const [isBankModalOpen, setIsBankModalOpen] = useState(false);
   const [isEntryModalOpen, setIsEntryModalOpen] = useState(false);
   const [editingBank, setEditingBank] = useState<Bank | null>(null);
+  const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
   const [deletingBankId, setDeletingBankId] = useState<string | null>(null);
+  const [deletingTxId, setDeletingTxId] = useState<string | null>(null);
   
   // Consolidated Filter State
   const [dateRange, setDateRange] = useState({ start: '', end: '' });
   const [searchTerm, setSearchTerm] = useState('');
+  const [showHighlightedOnly, setShowHighlightedOnly] = useState(false);
+  const [highlightedIds, setHighlightedIds] = useState<Set<string>>(() => {
+    try { return new Set(JSON.parse(localStorage.getItem('bank-highlights') || '[]')); }
+    catch { return new Set<string>(); }
+  });
+
+  const toggleHighlight = (id: string) => {
+    setHighlightedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      localStorage.setItem('bank-highlights', JSON.stringify([...next]));
+      return next;
+    });
+  };
 
   // Entry Form State
   const [bankEntry, setBankEntry] = useState({
@@ -197,11 +218,11 @@ const BankLedger: React.FC<BankLedgerProps> = ({ banks, transactions, customers,
     doc.setFontSize(22);
     doc.setTextColor(30, 41, 59);
     doc.setFont('helvetica', 'bold');
-    doc.text('New Jehlum Gold Smith', 14, 20);
+    doc.text(projectName, 14, 20);
     doc.setFontSize(10);
     doc.setTextColor(100, 116, 139);
     doc.setFont('helvetica', 'normal');
-    doc.text(`Bank Statement: ${selectedBankId === 'ALL' ? 'All Accounts' : activeBank?.name}`, 14, 27);
+    doc.text(shopPhone ? `Ph: ${shopPhone} | ${selectedBankId === 'ALL' ? 'All Accounts' : activeBank?.name}` : `Bank Statement: ${selectedBankId === 'ALL' ? 'All Accounts' : activeBank?.name}`, 14, 27);
     autoTable(doc, {
       startY: 35,
       head: [['Date', 'Description', 'Bank', 'IN (+)', 'OUT (-)', 'Balance']],
@@ -224,10 +245,10 @@ const BankLedger: React.FC<BankLedgerProps> = ({ banks, transactions, customers,
     e.preventDefault();
     if (!bankEntry.targetBankId || bankEntry.amount <= 0) return;
 
-    onAddTransaction({
-      id: Date.now().toString(),
+    const txPayload: Transaction = {
+      ...(editingTransaction || { id: Date.now().toString() }),
       date: bankEntry.date,
-      type: TransactionType.BANK_ADJUSTMENT,
+      type: editingTransaction?.type || TransactionType.BANK_ADJUSTMENT,
       remarks: bankEntry.remarks || (bankEntry.type === 'WITHDRAW' ? 'Cash Withdrawal' : 'Cash Deposit'),
       paymentMethod: PaymentMethod.BANK,
       bankId: bankEntry.targetBankId,
@@ -235,9 +256,16 @@ const BankLedger: React.FC<BankLedgerProps> = ({ banks, transactions, customers,
       referenceNo: bankEntry.referenceNo,
       cashIn: bankEntry.type === 'DEPOSIT' ? bankEntry.amount : 0,
       cashOut: bankEntry.type === 'WITHDRAW' ? bankEntry.amount : 0
-    });
+    };
+
+    if (editingTransaction) {
+      onUpdateTransaction(txPayload);
+    } else {
+      onAddTransaction(txPayload);
+    }
 
     setIsEntryModalOpen(false);
+    setEditingTransaction(null);
     setBankEntry({
       type: 'WITHDRAW',
       amount: 0,
@@ -249,7 +277,22 @@ const BankLedger: React.FC<BankLedgerProps> = ({ banks, transactions, customers,
     });
   };
 
+  const openEditEntry = (t: Transaction) => {
+    setEditingTransaction(t);
+    setBankEntry({
+      type: (t.cashIn || 0) > 0 ? 'DEPOSIT' : 'WITHDRAW',
+      amount: t.cashIn || t.cashOut || 0,
+      date: t.date,
+      remarks: t.remarks || '',
+      transferType: t.transferType || TransferType.TF,
+      targetBankId: t.bankId || '',
+      referenceNo: t.referenceNo || ''
+    });
+    setIsEntryModalOpen(true);
+  };
+
   const openActionModal = (type: 'WITHDRAW' | 'DEPOSIT', bankId?: string) => {
+    setEditingTransaction(null);
     setBankEntry({
       type,
       amount: 0,
@@ -400,6 +443,19 @@ const BankLedger: React.FC<BankLedgerProps> = ({ banks, transactions, customers,
                   />
                 </div>
 
+                <button
+                  onClick={() => setShowHighlightedOnly(v => !v)}
+                  title="Show starred only"
+                  className={`p-1.5 rounded-lg transition-all flex items-center gap-1 text-xs font-semibold ${
+                    showHighlightedOnly
+                      ? 'bg-yellow-100 text-yellow-600 border border-yellow-300'
+                      : 'text-gray-400 hover:bg-yellow-50 hover:text-yellow-500 border border-transparent'
+                  }`}
+                >
+                  <Star size={14} fill={showHighlightedOnly ? 'currentColor' : 'none'} />
+                  {showHighlightedOnly && <span>Starred</span>}
+                </button>
+
                 {(searchTerm || dateRange.start || dateRange.end) && (
                   <button 
                     onClick={clearFilters}
@@ -431,25 +487,32 @@ const BankLedger: React.FC<BankLedgerProps> = ({ banks, transactions, customers,
               <table className="min-w-full divide-y divide-gray-100">
                 <thead className="bg-gray-50 dark:bg-slate-800/70 text-xs font-semibold text-gray-500 dark:text-slate-400 tracking-wide">
                   <tr>
+                    <th className="px-3 py-4 w-8"></th>
                     <th className="px-6 py-4 text-left">Date</th>
                     <th className="px-6 py-4 text-left">Description / Particulars</th>
                     {selectedBankId === 'ALL' && <th className="px-6 py-4 text-left">Bank</th>}
                     <th className="px-6 py-4 text-right">Credit (+)</th>
                     <th className="px-6 py-4 text-right">Debit (-)</th>
                     <th className="px-6 py-4 text-right bg-indigo-50/30">Balance</th>
+                    <th className="px-3 py-4 text-center w-16">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="bg-white dark:bg-slate-900 divide-y divide-gray-50 dark:divide-slate-800 text-sm">
-                  {statementData.length === 0 ? (
-                    <tr><td colSpan={selectedBankId === 'ALL' ? 6 : 5} className="px-6 py-20 text-center opacity-30">
+                  {(() => { const displayedData = showHighlightedOnly ? statementData.filter(t => highlightedIds.has(t.id)) : statementData; return displayedData.length === 0 ? (
+                    <tr><td colSpan={selectedBankId === 'ALL' ? 8 : 7} className="px-6 py-20 text-center opacity-30">
                       <div className="flex flex-col items-center">
                         <Filter size={40} className="mb-2" />
-                        <p className="font-semibold tracking-wide text-sm text-gray-500 dark:text-slate-400">No transactions found</p>
+                        <p className="font-semibold tracking-wide text-sm text-gray-500 dark:text-slate-400">{showHighlightedOnly ? 'No starred entries' : 'No transactions found'}</p>
                       </div>
                     </td></tr>
                   ) : (
-                    statementData.map(t => (
-                      <tr key={t.id} className="hover:bg-gray-50/50 transition-colors">
+                    displayedData.map(t => (
+                      <tr key={t.id} className={`transition-colors group ${highlightedIds.has(t.id) ? 'bg-yellow-50 dark:bg-yellow-950/20 border-l-4 border-yellow-400' : 'hover:bg-gray-50/50'}`}>
+                        <td className="px-3 py-4 w-8">
+                          <button onClick={() => toggleHighlight(t.id)} className={`p-1 rounded transition-colors ${highlightedIds.has(t.id) ? 'text-yellow-500' : 'text-gray-200 dark:text-slate-700 hover:text-yellow-400'}`}>
+                            <Star size={14} fill={highlightedIds.has(t.id) ? 'currentColor' : 'none'} />
+                          </button>
+                        </td>
                         <td className="px-6 py-4 whitespace-nowrap text-gray-500 dark:text-slate-400 font-medium">
                             {format(new Date(t.date), 'dd/MM/yy')}
                         </td>
@@ -474,9 +537,15 @@ const BankLedger: React.FC<BankLedgerProps> = ({ banks, transactions, customers,
                         <td className="px-6 py-4 whitespace-nowrap text-right font-semibold bg-indigo-50/20 dark:bg-indigo-950/20 text-indigo-900 dark:text-indigo-300">
                           {Math.round(t.balanceAfter || 0).toLocaleString() || '0'}
                         </td>
+                        <td className="px-3 py-4 text-center">
+                          <div className="flex justify-center space-x-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                            <button onClick={() => openEditEntry(t)} className="p-1.5 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-slate-700 rounded transition-colors" title="Edit entry"><Edit2 size={13} /></button>
+                            <button onClick={() => setDeletingTxId(t.id)} className="p-1.5 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-slate-700 rounded transition-colors" title="Delete entry"><Trash2 size={13} /></button>
+                          </div>
+                        </td>
                       </tr>
                     ))
-                  )}
+                  ); })()}
                 </tbody>
               </table>
             </div>
@@ -527,8 +596,8 @@ const BankLedger: React.FC<BankLedgerProps> = ({ banks, transactions, customers,
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
            <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-sm w-full p-6 shadow-2xl animate-in zoom-in duration-200 border border-gray-100 dark:border-slate-800">
              <div className="flex justify-between items-center mb-6">
-              <h3 className="font-display text-2xl font-semibold text-gray-800 dark:text-slate-100 tracking-tight">{bankEntry.type} Cash</h3>
-              <button onClick={() => setIsEntryModalOpen(false)} className="text-gray-400 dark:text-slate-500 hover:text-gray-600 dark:hover:text-slate-300"><X size={20} /></button>
+              <h3 className="font-display text-2xl font-semibold text-gray-800 dark:text-slate-100 tracking-tight">{editingTransaction ? `Edit Entry` : `${bankEntry.type} Cash`}</h3>
+              <button onClick={() => { setIsEntryModalOpen(false); setEditingTransaction(null); }} className="text-gray-400 dark:text-slate-500 hover:text-gray-600 dark:hover:text-slate-300"><X size={20} /></button>
             </div>
             <form onSubmit={handleEntrySubmit} className="space-y-4">
                <div>
@@ -560,9 +629,24 @@ const BankLedger: React.FC<BankLedgerProps> = ({ banks, transactions, customers,
                 <textarea className="w-full px-4 py-2.5 border border-gray-200 dark:border-slate-700 rounded-xl font-medium text-sm bg-gray-50 dark:bg-slate-800 dark:text-slate-100 outline-none min-h-[60px]" value={bankEntry.remarks} onChange={e => setBankEntry({...bankEntry, remarks: e.target.value})} placeholder="Particulars..." />
                </div>
               <button type="submit" className={`w-full py-3.5 text-white rounded-xl font-semibold text-sm tracking-wide shadow-xl transition-all active:scale-95 ${bankEntry.type === 'DEPOSIT' ? 'bg-green-600 shadow-green-100 hover:bg-green-700' : 'bg-rose-600 shadow-rose-100 hover:bg-rose-700'}`}>
-                 Confirm {bankEntry.type}
+                 {editingTransaction ? 'Update Entry' : `Confirm ${bankEntry.type}`}
                </button>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: Delete Transaction Confirmation */}
+      {deletingTxId && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[110] p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-[320px] w-full p-8 shadow-2xl text-center animate-in zoom-in duration-200 border border-gray-100 dark:border-slate-800">
+            <div className="w-16 h-16 bg-rose-50 dark:bg-rose-900/30 rounded-full flex items-center justify-center mx-auto mb-4 text-rose-600 dark:text-rose-400"><AlertTriangle size={32} /></div>
+            <h3 className="font-display text-xl font-semibold mb-1 tracking-tight text-gray-800 dark:text-slate-100">Delete Entry?</h3>
+            <p className="text-sm text-gray-500 dark:text-slate-400 mb-8 font-medium px-4">This transaction will be permanently removed and all balances will be recalculated.</p>
+            <div className="grid grid-cols-2 gap-3">
+              <button onClick={() => setDeletingTxId(null)} className="py-3 text-sm font-semibold text-gray-500 dark:text-slate-400 bg-gray-50 dark:bg-slate-800 rounded-xl hover:bg-gray-100 dark:hover:bg-slate-700 transition-all">Cancel</button>
+              <button onClick={() => { onDeleteTransaction(deletingTxId); setDeletingTxId(null); }} className="py-3 bg-rose-600 text-white rounded-xl font-semibold text-sm shadow-lg shadow-rose-100 hover:bg-rose-700 active:scale-95 transition-all">Yes, Delete</button>
+            </div>
           </div>
         </div>
       )}

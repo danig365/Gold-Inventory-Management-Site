@@ -1,13 +1,22 @@
 
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Customer, Transaction, TransactionType, Bank, PaymentMethod, TransferType } from '../types';
-import { ArrowLeft, PlusCircle, MinusCircle, Wallet, Scale, Printer, Edit2, Trash2, ChevronDown, AlertTriangle, Layers, Landmark, Banknote, Download, FileSpreadsheet, FileText, X, CalendarDays, ArrowDownLeft, ArrowUpRight, CheckCircle2, Filter, RotateCcw, Weight, Info, Calculator, Palette, List, Coins, Settings2, Search, Calendar } from 'lucide-react';
+import { ArrowLeft, PlusCircle, MinusCircle, Wallet, Scale, Printer, Edit2, Trash2, ChevronDown, AlertTriangle, Layers, Landmark, Banknote, Download, FileSpreadsheet, FileText, X, CalendarDays, ArrowDownLeft, ArrowUpRight, CheckCircle2, Filter, RotateCcw, Weight, Info, Calculator, Palette, List, Coins, Settings2, Search, Calendar, Star, Paperclip } from 'lucide-react';
 import { format, isWithinInterval, parseISO, startOfDay, endOfDay } from 'date-fns';
 import * as XLSX from 'xlsx';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { api } from '../api';
 
 const TOLA_WEIGHT = 11.664;
+const getStarStorageKey = (customerId: string) => `customer-ledger-stars:${customerId}`;
+
+const BALANCE_FILTER_TYPES: Record<'CASH' | 'GOLD' | 'SILVER' | 'COPPER', TransactionType[]> = {
+  CASH: [TransactionType.CASH_PAYMENT, TransactionType.BUY_GOLD, TransactionType.SELL_GOLD, TransactionType.BUY_SILVER, TransactionType.SELL_SILVER, TransactionType.BUY_COPPER, TransactionType.SELL_COPPER],
+  GOLD: [TransactionType.BUY_GOLD, TransactionType.SELL_GOLD, TransactionType.GOLD_SETTLEMENT],
+  SILVER: [TransactionType.BUY_SILVER, TransactionType.SELL_SILVER, TransactionType.SILVER_SETTLEMENT],
+  COPPER: [TransactionType.BUY_COPPER, TransactionType.SELL_COPPER, TransactionType.COPPER_SETTLEMENT],
+};
 
 // Helper function to parse date strings in YYYY-MM-DD format without timezone issues
 const parseDateString = (dateStr: string): Date => {
@@ -25,6 +34,7 @@ const getTodayDateString = () => {
 
 interface CustomerLedgerProps {
   customer: Customer;
+  customers: Customer[];
   transactions: Transaction[];
   allTransactions: Transaction[];
   banks: Bank[];
@@ -32,6 +42,9 @@ interface CustomerLedgerProps {
   onAddTransaction: (transaction: Transaction) => void;
   onUpdateTransaction: (transaction: Transaction) => void;
   onDeleteTransaction: (id: string) => void;
+  projectName: string;
+  shopPhone: string;
+  metalFilter?: 'ALL' | 'GOLD' | 'SILVER' | 'COPPER';
 }
 
 type TransactionFormData = {
@@ -49,23 +62,36 @@ type TransactionFormData = {
   impureWeight: number;
   point: number;
   karat: number;
+  attachmentId: string;
+  attachmentName: string;
+  transferCustomerId: string;
+  transferAsset: 'CASH' | 'GOLD';
 };
 
-const CustomerLedger: React.FC<CustomerLedgerProps> = ({ 
-  customer, 
-  transactions, 
+const CustomerLedger: React.FC<CustomerLedgerProps> = ({
+  customer,
+  customers,
+  transactions,
   allTransactions,
   banks,
-  onBack, 
+  onBack,
   onAddTransaction,
   onUpdateTransaction,
-  onDeleteTransaction
+  onDeleteTransaction,
+  projectName,
+  shopPhone,
+  metalFilter = 'ALL',
 }) => {
+  const showGold = metalFilter === 'ALL' || metalFilter === 'GOLD';
+  const showSilver = metalFilter === 'ALL' || metalFilter === 'SILVER';
+  const showCopper = metalFilter === 'ALL' || metalFilter === 'COPPER';
   const [isTxModalOpen, setIsTxModalOpen] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [refError, setRefError] = useState<string | null>(null);
+  const [isUploadingFile, setIsUploadingFile] = useState(false);
+  const [fileError, setFileError] = useState<string | null>(null);
   const [usePlainTable, setUsePlainTable] = useState(() => {
     const saved = localStorage.getItem('NewJehlum_use_plain_table');
     return saved === 'true';
@@ -73,13 +99,24 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
 
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState<string>('ALL');
+  const [balanceFilter, setBalanceFilter] = useState<'ALL' | 'CASH' | 'GOLD' | 'SILVER' | 'COPPER'>('ALL');
   const [filterStartDate, setFilterStartDate] = useState<string>('');
   const [filterEndDate, setFilterEndDate] = useState<string>('');
+  const [showStarredOnly, setShowStarredOnly] = useState<boolean>(false);
+  const [starredIds, setStarredIds] = useState<Set<string>>(() => {
+    try {
+      return new Set(JSON.parse(localStorage.getItem(getStarStorageKey(customer.id)) || '[]'));
+    } catch {
+      return new Set<string>();
+    }
+  });
   
   const [rateMode, setRateMode] = useState<'GRAM' | 'TOLA'>('TOLA');
   const [weightMode, setWeightMode] = useState<'GRAM' | 'TOLA' | 'KG'>('GRAM');
   const [settleMode, setSettleMode] = useState<'POINT' | 'KARAT'>('POINT');
   const [isCalcMode, setIsCalcMode] = useState(false);
+  const [useAltTola, setUseAltTola] = useState(false);
+  const activeTolaWeight = useAltTola ? 12.15 : TOLA_WEIGHT;
 
   const draftKey = `NewJehlum_draft_tx_${customer.id}`;
 
@@ -98,6 +135,10 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
     impureWeight: 0,
     point: 0,
     karat: 24,
+    attachmentId: '',
+    attachmentName: '',
+    transferCustomerId: '',
+    transferAsset: 'CASH',
   });
 
   const [activeForm, setActiveForm] = useState<TransactionType>(() => {
@@ -110,13 +151,20 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
   const [weightInput, setWeightInput] = useState('');
   const [kgInput, setKgInput] = useState('');
   const [rateInput, setRateInput] = useState('');
+  const [totalAmountInput, setTotalAmountInput] = useState('');
   const [impureInput, setImpureInput] = useState('');
   const [pointInput, setPointInput] = useState('');
   const [karatInput, setKaratInput] = useState('24');
   const [amountInput, setAmountInput] = useState('');
+  const [transferLedgerSearch, setTransferLedgerSearch] = useState('');
+  const [isTransferLedgerListOpen, setIsTransferLedgerListOpen] = useState(false);
 
   const isMetalTrade = useMemo(() => {
-    return [TransactionType.BUY_GOLD, TransactionType.SELL_GOLD, TransactionType.BUY_SILVER, TransactionType.SELL_SILVER].includes(activeForm);
+    return [TransactionType.BUY_GOLD, TransactionType.SELL_GOLD, TransactionType.BUY_SILVER, TransactionType.SELL_SILVER, TransactionType.BUY_COPPER, TransactionType.SELL_COPPER].includes(activeForm);
+  }, [activeForm]);
+
+  const isCopperTrade = useMemo(() => {
+    return [TransactionType.BUY_COPPER, TransactionType.SELL_COPPER].includes(activeForm);
   }, [activeForm]);
 
   const isMetalSettle = useMemo(() => {
@@ -126,6 +174,27 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
   const isSilverTrade = useMemo(() => {
     return [TransactionType.BUY_SILVER, TransactionType.SELL_SILVER].includes(activeForm);
   }, [activeForm]);
+
+  const isTransfer = useMemo(() => activeForm === TransactionType.LEDGER_TRANSFER, [activeForm]);
+
+  const transferTargets = useMemo(() => {
+    return customers.filter(c => c.id !== customer.id).sort((a, b) => a.name.localeCompare(b.name));
+  }, [customers, customer.id]);
+
+  const filteredTransferTargets = useMemo(() => {
+    if (!transferLedgerSearch.trim()) return transferTargets;
+    const q = transferLedgerSearch.trim().toLowerCase();
+    return transferTargets.filter(c => c.name.toLowerCase().includes(q) || (c.address || '').toLowerCase().includes(q));
+  }, [transferTargets, transferLedgerSearch]);
+
+  // Restrict the entry-type tabs shown in the modal to those relevant to the active metal filter.
+  // Cash Entry and Ledger Transfer are always available since they are not metal-specific.
+  const visibleTabTypes = useMemo(() => {
+    if (metalFilter === 'GOLD') return new Set([TransactionType.BUY_GOLD, TransactionType.SELL_GOLD, TransactionType.GOLD_SETTLEMENT, TransactionType.CASH_PAYMENT, TransactionType.LEDGER_TRANSFER]);
+    if (metalFilter === 'SILVER') return new Set([TransactionType.BUY_SILVER, TransactionType.SELL_SILVER, TransactionType.SILVER_SETTLEMENT, TransactionType.CASH_PAYMENT, TransactionType.LEDGER_TRANSFER]);
+    if (metalFilter === 'COPPER') return new Set([TransactionType.BUY_COPPER, TransactionType.SELL_COPPER, TransactionType.COPPER_SETTLEMENT, TransactionType.CASH_PAYMENT, TransactionType.LEDGER_TRANSFER]);
+    return null;
+  }, [metalFilter]);
 
   const isDuplicateRef = useMemo(() => {
     if (formData.paymentMethod !== PaymentMethod.BANK || !formData.referenceNo || !formData.bankId) return false;
@@ -190,7 +259,7 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
 
   useEffect(() => {
     if (editingTransaction) {
-      const w = editingTransaction.goldWeight || editingTransaction.silverWeight || editingTransaction.goldIn || editingTransaction.goldOut || editingTransaction.silverIn || editingTransaction.silverOut || 0;
+      const w = editingTransaction.goldWeight || editingTransaction.silverWeight || editingTransaction.copperWeight || editingTransaction.goldIn || editingTransaction.goldOut || editingTransaction.silverIn || editingTransaction.silverOut || editingTransaction.copperIn || editingTransaction.copperOut || 0;
       const loadedRateMode = editingTransaction.rateMode || 'TOLA';
       
       const newFd: TransactionFormData = {
@@ -204,10 +273,14 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
         bankId: editingTransaction.bankId || '',
         transferType: editingTransaction.transferType || TransferType.TF,
         referenceNo: editingTransaction.referenceNo || '',
-        direction: (editingTransaction.cashIn || editingTransaction.goldIn || editingTransaction.silverIn) ? 'IN' : 'OUT',
+        direction: (editingTransaction.cashIn || editingTransaction.goldIn || editingTransaction.silverIn || editingTransaction.copperIn) ? 'IN' : 'OUT',
         impureWeight: editingTransaction.impureWeight || 0,
         point: editingTransaction.point || 0,
-        karat: editingTransaction.karat || 24
+        karat: editingTransaction.karat || 24,
+        attachmentId: editingTransaction.attachmentId || '',
+        attachmentName: editingTransaction.attachmentName || '',
+        transferCustomerId: '',
+        transferAsset: 'CASH',
       };
       setFormData(newFd);
       setActiveForm(editingTransaction.type);
@@ -217,6 +290,7 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
       syncRateInput(newFd, loadedRateMode);
       setIsTxModalOpen(true);
       setWeightMode('GRAM');
+      setUseAltTola(false);
       syncInputs(newFd);
     }
   }, [editingTransaction]);
@@ -225,13 +299,16 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
     setActiveForm(type);
     setRefError(null);
     const clearedFd = createDefaultFormData(dateOverride ?? formData.date);
+    if (type === TransactionType.LEDGER_TRANSFER) clearedFd.direction = 'OUT';
     setFormData(clearedFd);
     setWeightMode('GRAM');
     setRateMode('TOLA');
+    setUseAltTola(false);
     setRateInput('');
+    setTotalAmountInput('');
     setAmountInput('');
     setSettleMode('POINT');
-    setIsCalcMode(type === TransactionType.GOLD_SETTLEMENT || type === TransactionType.SILVER_SETTLEMENT);
+    setIsCalcMode(type === TransactionType.GOLD_SETTLEMENT || type === TransactionType.SILVER_SETTLEMENT || type === TransactionType.COPPER_SETTLEMENT);
     syncInputs(clearedFd);
   };
 
@@ -257,13 +334,24 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
 
   const handleWeightInputChange = (str: string) => {
     setWeightInput(str);
+    setTotalAmountInput('');
     const val = evaluateMath(str);
     let gramWeight = val;
     if (weightMode === 'KG' && !isSilverTrade) gramWeight = val * 1000;
-    else if (weightMode === 'TOLA') gramWeight = val * TOLA_WEIGHT;
+    else if (weightMode === 'TOLA') gramWeight = val * activeTolaWeight;
     
     setFormData({ ...formData, weight: gramWeight, impureWeight: 0, point: 0, karat: 24 });
     if (isSilverTrade) setKgInput(gramWeight > 0 ? (gramWeight / 1000).toString() : '');
+  };
+
+  const handleTotalAmountChange = (str: string) => {
+    setTotalAmountInput(str);
+    const total = evaluateMath(str);
+    if (total > 0 && formData.ratePerTola > 0) {
+      const gramWeight = total * activeTolaWeight / formData.ratePerTola;
+      setFormData({ ...formData, weight: gramWeight, impureWeight: 0, point: 0, karat: 24 });
+      setWeightInput(parseFloat(gramWeight.toFixed(4)).toString());
+    }
   };
 
   const handleKgInputChange = (str: string) => {
@@ -287,7 +375,7 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
     const val = evaluateMath(str);
     let baseWeight = val;
     if (weightMode === 'KG') baseWeight = val * 1000;
-    else if (weightMode === 'TOLA') baseWeight = val * TOLA_WEIGHT;
+    else if (weightMode === 'TOLA') baseWeight = val * activeTolaWeight;
     
     const pure = calculatePure(baseWeight, settleMode, formData.point, formData.karat);
     setFormData({ ...formData, impureWeight: baseWeight, weight: pure });
@@ -321,7 +409,7 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
     setFormData({
       ...formData,
       rate: val,
-      ratePerTola: val * TOLA_WEIGHT
+      ratePerTola: val * activeTolaWeight
     });
   };
 
@@ -329,7 +417,7 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
     setFormData({
       ...formData,
       ratePerTola: val,
-      rate: val / TOLA_WEIGHT
+      rate: val / activeTolaWeight
     });
   };
 
@@ -337,9 +425,18 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
     let runningCash = 0; 
     let runningGold = 0;
     let runningSilver = 0;
+    let runningCopper = 0;
     
-    return [...transactions].sort((a, b) => parseDateString(a.date).getTime() - parseDateString(b.date).getTime()).map((t, index) => {
-      const weight = (t.goldWeight || t.silverWeight || 0);
+    return [...transactions]
+      .sort((a, b) => {
+        const dateDiff = parseDateString(a.date).getTime() - parseDateString(b.date).getTime();
+        if (dateDiff !== 0) return dateDiff;
+        const createdDiff = new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime();
+        if (createdDiff !== 0) return createdDiff;
+        return 0;
+      })
+      .map((t, index) => {
+      const weight = (t.goldWeight || t.silverWeight || t.copperWeight || 0);
       const rate = (t.rate || 0);
       const tradeValue = weight * rate;
       
@@ -355,6 +452,12 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
       } else if (t.type === TransactionType.SELL_SILVER) {
         runningSilver -= (t.silverWeight || 0);
         runningCash += tradeValue;
+      } else if (t.type === TransactionType.BUY_COPPER) {
+        runningCopper += (t.copperWeight || 0);
+        runningCash -= tradeValue;
+      } else if (t.type === TransactionType.SELL_COPPER) {
+        runningCopper -= (t.copperWeight || 0);
+        runningCash += tradeValue;
       } else if (t.type === TransactionType.CASH_PAYMENT) {
         runningCash -= (t.cashIn || 0);
         runningCash += (t.cashOut || 0);
@@ -364,23 +467,28 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
       } else if (t.type === TransactionType.SILVER_SETTLEMENT) {
         runningSilver -= (t.silverIn || 0);
         runningSilver += (t.silverOut || 0);
+      } else if (t.type === TransactionType.COPPER_SETTLEMENT) {
+        runningCopper -= (t.copperIn || 0);
+        runningCopper += (t.copperOut || 0);
       }
 
-      return {
-        ...t,
-        srNo: index + 1,
-        remainingCash: runningCash,
-        remainingGold: runningGold,
-        remainingSilver: runningSilver,
-        tradeValue
-      };
-    });
+        return {
+          ...t,
+          srNo: index + 1,
+          remainingCash: runningCash,
+          remainingGold: runningGold,
+          remainingSilver: runningSilver,
+          remainingCopper: runningCopper,
+          tradeValue
+        };
+      });
   }, [transactions]);
 
   const ledgerData = useMemo(() => {
     return fullLedgerData.filter(t => {
       const matchesType = filterType === 'ALL' || t.type === filterType;
-      
+      const matchesBalance = balanceFilter === 'ALL' || BALANCE_FILTER_TYPES[balanceFilter].includes(t.type);
+
       let matchesDate = true;
       if (filterStartDate || filterEndDate) {
         const txDate = parseDateString(t.date);
@@ -398,22 +506,150 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
           (t.referenceNo?.toLowerCase().includes(term) || false);
       }
 
-      return matchesType && matchesDate && matchesSearch;
+      return matchesType && matchesBalance && matchesDate && matchesSearch;
     });
-  }, [fullLedgerData, filterType, filterStartDate, filterEndDate, searchTerm]);
+  }, [fullLedgerData, filterType, balanceFilter, filterStartDate, filterEndDate, searchTerm]);
+
+  const displayedLedgerData = useMemo(() => {
+    return showStarredOnly ? ledgerData.filter(t => starredIds.has(t.id)) : ledgerData;
+  }, [ledgerData, showStarredOnly, starredIds]);
+
+  const tableDisplayData = useMemo(() => {
+    return [...displayedLedgerData].reverse();
+  }, [displayedLedgerData]);
+
+  useEffect(() => {
+    localStorage.setItem(getStarStorageKey(customer.id), JSON.stringify([...starredIds]));
+  }, [starredIds, customer.id]);
+
+  const toggleStar = (txId: string) => {
+    setStarredIds(prev => {
+      const next = new Set(prev);
+      if (next.has(txId)) next.delete(txId);
+      else next.add(txId);
+      return next;
+    });
+  };
 
   const totals = useMemo(() => {
     const finalTx = fullLedgerData[fullLedgerData.length - 1];
     return {
       cash: finalTx?.remainingCash || 0,
       gold: finalTx?.remainingGold || 0,
-      silver: finalTx?.remainingSilver || 0
+      silver: finalTx?.remainingSilver || 0,
+      copper: finalTx?.remainingCopper || 0
     };
   }, [fullLedgerData]);
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setFileError(null);
+    setIsUploadingFile(true);
+    try {
+      const { id, name } = await api.uploadAttachment(file);
+      setFormData(prev => ({ ...prev, attachmentId: id, attachmentName: name }));
+    } catch (err) {
+      setFileError((err as Error).message || 'Failed to upload file');
+    } finally {
+      setIsUploadingFile(false);
+    }
+  };
+
+  const handleRemoveAttachment = () => {
+    setFormData(prev => ({ ...prev, attachmentId: '', attachmentName: '' }));
+  };
+
+  const handleDownloadAttachment = (id: string, name: string) => {
+    api.downloadAttachment(id, name).catch(err => alert((err as Error).message || 'Failed to download file'));
+  };
 
   const handleTxSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setRefError(null);
+
+    if (activeForm === TransactionType.LEDGER_TRANSFER) {
+      const isGoldTransfer = formData.transferAsset === 'GOLD';
+      if (!formData.transferCustomerId) { setRefError("Please select a ledger to transfer with."); return; }
+      if (formData.transferCustomerId === customer.id) { setRefError("Cannot transfer within the same ledger."); return; }
+      if (isGoldTransfer) {
+        if (formData.weight <= 0) { setRefError("Transfer weight must be a positive number."); return; }
+      } else {
+        if (formData.amount <= 0) { setRefError("Transfer amount must be a positive number."); return; }
+      }
+
+      const targetCustomer = customers.find(c => c.id === formData.transferCustomerId);
+      if (!targetCustomer) { setRefError("Selected ledger could not be found."); return; }
+
+      const transferId = `TRF-${Date.now()}`;
+      const isPayingOut = formData.direction === 'OUT';
+      const sourceId = isPayingOut ? customer.id : targetCustomer.id;
+      const sourceName = isPayingOut ? customer.name : targetCustomer.name;
+      const destId = isPayingOut ? targetCustomer.id : customer.id;
+      const destName = isPayingOut ? targetCustomer.name : customer.name;
+      const noteSuffix = formData.remarks ? ` - ${formData.remarks}` : '';
+      const transferTimestamp = new Date().toISOString();
+
+      const debitTx: Transaction = isGoldTransfer ? {
+        id: `${transferId}-OUT`,
+        customerId: sourceId,
+        date: formData.date,
+        type: TransactionType.GOLD_SETTLEMENT,
+        goldIn: formData.weight,
+        goldOut: 0,
+        referenceNo: transferId,
+        remarks: `Gold Ledger Transfer: Paid to ${destName} (Ref: ${transferId})${noteSuffix}`,
+        createdAt: transferTimestamp,
+      } : {
+        id: `${transferId}-OUT`,
+        customerId: sourceId,
+        date: formData.date,
+        type: TransactionType.CASH_PAYMENT,
+        cashIn: formData.amount,
+        cashOut: 0,
+        paymentMethod: PaymentMethod.CASH,
+        referenceNo: transferId,
+        remarks: `Ledger Transfer: Paid to ${destName} (Ref: ${transferId})${noteSuffix}`,
+        createdAt: transferTimestamp,
+      };
+      const creditTx: Transaction = isGoldTransfer ? {
+        id: `${transferId}-IN`,
+        customerId: destId,
+        date: formData.date,
+        type: TransactionType.GOLD_SETTLEMENT,
+        goldIn: 0,
+        goldOut: formData.weight,
+        referenceNo: transferId,
+        remarks: `Gold Ledger Transfer: Received from ${sourceName} (Ref: ${transferId})${noteSuffix}`,
+        createdAt: transferTimestamp,
+      } : {
+        id: `${transferId}-IN`,
+        customerId: destId,
+        date: formData.date,
+        type: TransactionType.CASH_PAYMENT,
+        cashIn: 0,
+        cashOut: formData.amount,
+        paymentMethod: PaymentMethod.CASH,
+        referenceNo: transferId,
+        remarks: `Ledger Transfer: Received from ${sourceName} (Ref: ${transferId})${noteSuffix}`,
+        createdAt: transferTimestamp,
+      };
+
+      onAddTransaction(debitTx);
+      onAddTransaction(creditTx);
+
+      localStorage.removeItem(draftKey);
+      localStorage.removeItem(`${draftKey}_type`);
+      setFormData(createDefaultFormData(formData.date));
+      setRateInput('');
+      setAmountInput('');
+      setWeightInput('');
+      syncInputs(createDefaultFormData(formData.date));
+      setIsTxModalOpen(false);
+      setEditingTransaction(null);
+      return;
+    }
 
     if (isMetalTrade) {
       if (formData.weight <= 0) { setRefError("Weight must be a positive number."); return; }
@@ -437,9 +673,12 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
       type: activeForm,
       remarks: formData.remarks,
       rateMode: isMetalTrade ? rateMode : undefined,
+      attachmentId: formData.attachmentId || undefined,
+      attachmentName: formData.attachmentName || undefined,
+      createdAt: editingTransaction ? editingTransaction.createdAt : new Date().toISOString(),
     };
     tx.goldWeight = undefined; tx.silverWeight = undefined; tx.rate = undefined;
-    tx.goldIn = 0; tx.goldOut = 0; tx.silverIn = 0; tx.silverOut = 0; tx.cashIn = 0; tx.cashOut = 0;
+    tx.goldIn = 0; tx.goldOut = 0; tx.silverIn = 0; tx.silverOut = 0; tx.copperIn = 0; tx.copperOut = 0; tx.cashIn = 0; tx.cashOut = 0;
     tx.impureWeight = undefined; tx.point = undefined; tx.karat = undefined;
     
     if (isCalcMode) {
@@ -475,6 +714,14 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
         if (formData.direction === 'IN') tx.silverIn = formData.weight;
         else tx.silverOut = formData.weight;
         break;
+      case TransactionType.COPPER_SETTLEMENT:
+        if (formData.direction === 'IN') tx.copperIn = formData.weight;
+        else tx.copperOut = formData.weight;
+        break;
+      case TransactionType.BUY_COPPER:
+      case TransactionType.SELL_COPPER:
+        tx.copperWeight = formData.weight; tx.rate = formData.rate;
+        break;
     }
     if (editingTransaction) onUpdateTransaction(tx);
     else onAddTransaction(tx);
@@ -492,11 +739,29 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
     return type.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()).join(' ');
   };
 
+  const formatEntryTime = (t: { createdAt?: string }) => {
+    if (!t.createdAt) return '-';
+    const d = new Date(t.createdAt);
+    if (isNaN(d.getTime())) return '-';
+    return format(d, 'hh:mm a');
+  };
+
+  const getBankName = (bankId?: string) => {
+    if (!bankId) return null;
+    return banks.find(b => b.id === bankId)?.name || null;
+  };
+
   const clearFilters = () => {
     setSearchTerm('');
     setFilterStartDate('');
     setFilterEndDate('');
     setFilterType('ALL');
+    setBalanceFilter('ALL');
+    setShowStarredOnly(false);
+  };
+
+  const toggleBalanceFilter = (filter: 'CASH' | 'GOLD' | 'SILVER' | 'COPPER') => {
+    setBalanceFilter(prev => prev === filter ? 'ALL' : filter);
   };
 
   const exportToExcel = () => {
@@ -508,16 +773,19 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
     const data = ledgerData.map(t => ({
       'Sr No': t.srNo,
       'Date': format(parseDateString(t.date), 'dd/MM/yyyy'),
-      'Description': t.remarks ? `${formatType(t.type)} - ${t.remarks}` : formatType(t.type),
+      'Time': formatEntryTime(t),
+      'Description': formatType(t.type),
+      'Remarks': t.remarks || '-',
       'Impure (g)': t.impureWeight || '-',
       'Point/Karat': t.point || t.karat || '-',
-      'Pure (g)': (t.goldWeight || t.goldIn || t.goldOut || t.silverWeight || t.silverIn || t.silverOut || 0).toFixed(3),
+      'Pure (g)': (t.goldWeight || t.goldIn || t.goldOut || t.silverWeight || t.silverIn || t.silverOut || t.copperWeight || t.copperIn || t.copperOut || 0).toFixed(3),
       'Rate': getDisplayRate(t).toFixed(2),
       'Receivable (Rs)': t.cashIn || (t.type.includes('SELL') ? t.tradeValue : 0),
       'Payable (Rs)': t.cashOut || (t.type.includes('BUY') ? t.tradeValue : 0),
       'Cash Balance (Rs)': t.remainingCash,
       'Gold Balance (g)': t.remainingGold.toFixed(3),
-      'Silver Balance (g)': t.remainingSilver.toFixed(2)
+      'Silver Balance (g)': t.remainingSilver.toFixed(2),
+      'Copper Balance (g)': t.remainingCopper.toFixed(2)
     }));
     const ws = XLSX.utils.json_to_sheet(data);
     const wb = XLSX.utils.book_new();
@@ -536,11 +804,11 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
     doc.setFontSize(22);
     doc.setTextColor(30, 41, 59);
     doc.setFont('helvetica', 'bold');
-    doc.text('New Jehlum  Gold Smith', 14, 20);
+    doc.text(projectName, 14, 20);
     doc.setFontSize(10);
     doc.setTextColor(100, 116, 139);
     doc.setFont('helvetica', 'normal');
-    doc.text('Ph: +92 321 6090043 | Customer Ledger Statement', 14, 27);
+    doc.text(shopPhone ? `Ph: ${shopPhone} | Customer Ledger Statement` : 'Customer Ledger Statement', 14, 27);
     
     doc.setTextColor(30, 41, 59);
     doc.setFontSize(12);
@@ -553,46 +821,30 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
     const tableRows = ledgerData.map(t => [
         t.srNo,
         format(parseDateString(t.date), 'dd/MM/yy'),
-        t.remarks ? `${formatType(t.type)}\n${t.remarks}` : formatType(t.type),
+        formatEntryTime(t),
+        formatType(t.type),
+        t.remarks || '-',
         t.impureWeight?.toFixed(2) || '-',
         t.point ? `${t.point} (P)` : (t.karat ? `${t.karat} (K)` : '-'),
-        (t.goldWeight || t.goldIn || t.goldOut || t.silverWeight || t.silverIn || t.silverOut || 0).toFixed(3),
+        (t.goldWeight || t.goldIn || t.goldOut || t.silverWeight || t.silverIn || t.silverOut || t.copperWeight || t.copperIn || t.copperOut || 0).toFixed(3),
       getDisplayRate(t).toLocaleString(undefined, { maximumFractionDigits: 2 }),
         (t.cashIn || (t.type.includes('SELL') ? t.tradeValue : 0))?.toLocaleString() || '0',
         (t.cashOut || (t.type.includes('BUY') ? t.tradeValue : 0))?.toLocaleString() || '0',
         t.remainingCash.toLocaleString(),
         t.remainingGold.toFixed(3),
-        t.remainingSilver.toFixed(2)
+        t.remainingSilver.toFixed(2),
+        t.remainingCopper.toFixed(2)
     ]);
 
-    const footerPure = ledgerData.reduce((sum, t) => sum + (t.goldWeight || t.goldIn || t.goldOut || t.silverWeight || t.silverIn || t.silverOut || 0), 0);
-    const footerIn = ledgerData.reduce((sum, t) => sum + (t.cashIn || (t.type.includes('SELL') ? (t.tradeValue || 0) : 0)), 0);
-    const footerOut = ledgerData.reduce((sum, t) => sum + (t.cashOut || (t.type.includes('BUY') ? (t.tradeValue || 0) : 0)), 0);
-
-    tableRows.push([
-        '', '', 'GRAND TOTAL', '', '',
-        footerPure.toFixed(3),
-        '',
-        footerIn.toLocaleString(),
-        footerOut.toLocaleString(),
-        ledgerData[ledgerData.length - 1]?.remainingCash.toLocaleString() || '0',
-        ledgerData[ledgerData.length - 1]?.remainingGold.toFixed(3) || '0',
-        ledgerData[ledgerData.length - 1]?.remainingSilver.toFixed(2) || '0'
-    ]);
 
     autoTable(doc, {
       startY: 55,
-      head: [['Sr', 'Date', 'Description', 'Impure (g)', 'Point/Karat', 'Pure', 'Rate', 'Receivable', 'Payable', 'Cash Balance', 'Gold Bal', 'Silver Bal']],
+      head: [['Sr', 'Date', 'Time', 'Description', 'Remarks', 'Impure (g)', 'Point/Karat', 'Pure', 'Rate', 'Receivable', 'Payable', 'Cash Balance', 'Gold Bal', 'Silver Bal', 'Copper Bal']],
       body: tableRows,
       theme: 'grid',
       headStyles: { fillColor: [67, 56, 202] },
       styles: { fontSize: 7 },
-      didParseCell: (data) => {
-          if (data.row.index === tableRows.length - 1) {
-              data.cell.styles.fontStyle = 'bold';
-              data.cell.styles.fillColor = [241, 245, 249];
-          }
-      }
+      columnStyles: { 3: { cellWidth: 20 }, 4: { cellWidth: 22 } },
     });
 
     const finalY = (doc as any).lastAutoTable.finalY + 15;
@@ -621,6 +873,11 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
     doc.setFont('helvetica', 'bold');
     doc.text(`(${totals.silver >= 0 ? 'RECEIVABLE/LAINA HAI' : 'PAYABLE/DAINA HAI'})`, summaryX + 100, finalY + summaryLineHeight * 3);
 
+    doc.setFont('helvetica', 'normal');
+    doc.text(`Copper Balance: ${Math.abs(totals.copper).toFixed(2)}g`, summaryX, finalY + summaryLineHeight * 4);
+    doc.setFont('helvetica', 'bold');
+    doc.text(`(${totals.copper >= 0 ? 'RECEIVABLE/LAINA HAI' : 'PAYABLE/DAINA HAI'})`, summaryX + 100, finalY + summaryLineHeight * 4);
+
     doc.save(`${customer.name}_Ledger.pdf`);
     setIsExportMenuOpen(false);
   };
@@ -637,30 +894,39 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
             <p className="text-sm font-medium text-gray-500 dark:text-slate-400 tracking-wide">{customer.address} • {customer.phone}</p>
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <button onClick={() => openQuickEntry(TransactionType.BUY_GOLD)} className="bg-green-600 text-white px-3 py-2 rounded-lg hover:bg-green-700 font-semibold shadow-md text-sm transition-all active:scale-95 flex items-center space-x-1.5"><PlusCircle size={14} /><span>Buy Gold</span></button>
-          <button onClick={() => openQuickEntry(TransactionType.SELL_GOLD)} className="bg-rose-600 text-white px-3 py-2 rounded-lg hover:bg-rose-700 font-semibold shadow-md text-sm transition-all active:scale-95 flex items-center space-x-1.5"><MinusCircle size={14} /><span>Sell Gold</span></button>
-          <button onClick={() => openQuickEntry(TransactionType.BUY_SILVER)} className="bg-emerald-600 text-white px-3 py-2 rounded-lg hover:bg-emerald-700 font-semibold shadow-md text-sm transition-all active:scale-95 flex items-center space-x-1.5"><PlusCircle size={14} /><span>Buy Silver</span></button>
-          <button onClick={() => openQuickEntry(TransactionType.SELL_SILVER)} className="bg-orange-600 text-white px-3 py-2 rounded-lg hover:bg-orange-700 font-semibold shadow-md text-sm transition-all active:scale-95 flex items-center space-x-1.5"><MinusCircle size={14} /><span>Sell Silver</span></button>
-          <button onClick={() => openQuickEntry(TransactionType.CASH_PAYMENT)} className="bg-indigo-600 text-white px-3 py-2 rounded-lg hover:bg-indigo-700 font-semibold shadow-md text-sm transition-all active:scale-95 flex items-center space-x-1.5"><Banknote size={14} /><span>Cash Entry</span></button>
-          <button onClick={() => openQuickEntry(TransactionType.GOLD_SETTLEMENT)} className="bg-yellow-500 text-white px-3 py-2 rounded-lg hover:bg-yellow-600 font-semibold shadow-md text-sm transition-all active:scale-95 flex items-center space-x-1.5"><Layers size={14} /><span>Gold Settle</span></button>
-          <button onClick={() => openQuickEntry(TransactionType.SILVER_SETTLEMENT)} className="bg-gray-500 text-white px-3 py-2 rounded-lg hover:bg-gray-600 font-semibold shadow-md text-sm transition-all active:scale-95 flex items-center space-x-1.5"><Layers size={14} /><span>Silver Settle</span></button>
+        <div className="flex flex-col gap-3 w-full lg:w-auto lg:items-end">
+          <div className="flex flex-wrap items-center gap-2">
+            {showGold && <button onClick={() => openQuickEntry(TransactionType.BUY_GOLD)} className="bg-green-600 text-white px-3 py-2 rounded-lg hover:bg-green-700 font-semibold shadow-md text-sm transition-all active:scale-95 flex items-center space-x-1.5"><PlusCircle size={14} /><span>Buy Gold</span></button>}
+            {showGold && <button onClick={() => openQuickEntry(TransactionType.SELL_GOLD)} className="bg-rose-600 text-white px-3 py-2 rounded-lg hover:bg-rose-700 font-semibold shadow-md text-sm transition-all active:scale-95 flex items-center space-x-1.5"><MinusCircle size={14} /><span>Sell Gold</span></button>}
+            {showSilver && <button onClick={() => openQuickEntry(TransactionType.BUY_SILVER)} className="bg-emerald-600 text-white px-3 py-2 rounded-lg hover:bg-emerald-700 font-semibold shadow-md text-sm transition-all active:scale-95 flex items-center space-x-1.5"><PlusCircle size={14} /><span>Buy Silver</span></button>}
+            {showSilver && <button onClick={() => openQuickEntry(TransactionType.SELL_SILVER)} className="bg-orange-600 text-white px-3 py-2 rounded-lg hover:bg-orange-700 font-semibold shadow-md text-sm transition-all active:scale-95 flex items-center space-x-1.5"><MinusCircle size={14} /><span>Sell Silver</span></button>}
+            {showCopper && <button onClick={() => openQuickEntry(TransactionType.BUY_COPPER)} className="bg-amber-700 text-white px-3 py-2 rounded-lg hover:bg-amber-800 font-semibold shadow-md text-sm transition-all active:scale-95 flex items-center space-x-1.5"><PlusCircle size={14} /><span>Buy Copper</span></button>}
+            {showCopper && <button onClick={() => openQuickEntry(TransactionType.SELL_COPPER)} className="bg-stone-600 text-white px-3 py-2 rounded-lg hover:bg-stone-700 font-semibold shadow-md text-sm transition-all active:scale-95 flex items-center space-x-1.5"><MinusCircle size={14} /><span>Sell Copper</span></button>}
+          </div>
 
-          <div className="relative ml-auto lg:ml-2">
-            <button onClick={() => setIsExportMenuOpen(!isExportMenuOpen)} className="flex items-center space-x-2 bg-white dark:bg-slate-900 border border-gray-300 dark:border-slate-800 text-gray-700 dark:text-slate-400 px-3 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-800 shadow-sm font-semibold text-sm transition-all"><Download size={14} /><span>Export</span><ChevronDown size={12} className={isExportMenuOpen ? 'rotate-180' : ''} /></button>
-            {isExportMenuOpen && (
-              <div className="absolute right-0 mt-2 w-40 bg-white dark:bg-slate-900 rounded-xl shadow-xl border border-gray-100 dark:border-slate-800 z-[70] py-1 overflow-hidden">
-                <button onClick={exportToExcel} className="w-full flex items-center space-x-3 px-3 py-2.5 text-xs font-semibold text-green-700 dark:text-green-500 hover:bg-green-50 dark:hover:bg-slate-800 transition-colors"><FileSpreadsheet size={14} /><span>Excel</span></button>
-                <button onClick={exportToPDF} className="w-full flex items-center space-x-3 px-3 py-2.5 text-xs font-semibold text-red-700 dark:text-rose-500 hover:bg-red-50 dark:hover:bg-slate-800 transition-colors"><FileText size={14} /><span>PDF</span></button>
-                <button onClick={() => { window.print(); setIsExportMenuOpen(false); }} className="w-full flex items-center space-x-3 px-4 py-2.5 text-xs font-semibold text-gray-700 dark:text-slate-400 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors"><Printer size={14} /><span>Print</span></button>
-              </div>
-            )}
+          <div className="flex flex-wrap items-center gap-2">
+            <button onClick={() => openQuickEntry(TransactionType.CASH_PAYMENT)} className="bg-indigo-600 text-white px-3 py-2 rounded-lg hover:bg-indigo-700 font-semibold shadow-md text-sm transition-all active:scale-95 flex items-center space-x-1.5"><Banknote size={14} /><span>Cash Entry</span></button>
+            <button onClick={() => openQuickEntry(TransactionType.LEDGER_TRANSFER)} className="bg-purple-600 text-white px-3 py-2 rounded-lg hover:bg-purple-700 font-semibold shadow-md text-sm transition-all active:scale-95 flex items-center space-x-1.5"><ArrowUpRight size={14} /><span>Ledger Transfer</span></button>
+            {showGold && <button onClick={() => openQuickEntry(TransactionType.GOLD_SETTLEMENT)} className="bg-yellow-500 text-white px-3 py-2 rounded-lg hover:bg-yellow-600 font-semibold shadow-md text-sm transition-all active:scale-95 flex items-center space-x-1.5"><Layers size={14} /><span>Gold Settle</span></button>}
+            {showSilver && <button onClick={() => openQuickEntry(TransactionType.SILVER_SETTLEMENT)} className="bg-slate-500 text-white px-3 py-2 rounded-lg hover:bg-slate-600 font-semibold shadow-md text-sm transition-all active:scale-95 flex items-center space-x-1.5"><Layers size={14} /><span>Silver Settle</span></button>}
+            {showCopper && <button onClick={() => openQuickEntry(TransactionType.COPPER_SETTLEMENT)} className="bg-amber-600 text-white px-3 py-2 rounded-lg hover:bg-amber-700 font-semibold shadow-md text-sm transition-all active:scale-95 flex items-center space-x-1.5"><Layers size={14} /><span>Copper Settle</span></button>}
+
+            <div className="relative">
+              <button onClick={() => setIsExportMenuOpen(!isExportMenuOpen)} className="flex items-center space-x-2 bg-white dark:bg-slate-900 border border-gray-300 dark:border-slate-800 text-gray-700 dark:text-slate-400 px-3 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-800 shadow-sm font-semibold text-sm transition-all"><Download size={14} /><span>Export</span><ChevronDown size={12} className={isExportMenuOpen ? 'rotate-180' : ''} /></button>
+              {isExportMenuOpen && (
+                <div className="absolute right-0 mt-2 w-40 bg-white dark:bg-slate-900 rounded-xl shadow-xl border border-gray-100 dark:border-slate-800 z-[70] py-1 overflow-hidden">
+                  <button onClick={exportToExcel} className="w-full flex items-center space-x-3 px-3 py-2.5 text-xs font-semibold text-green-700 dark:text-green-500 hover:bg-green-50 dark:hover:bg-slate-800 transition-colors"><FileSpreadsheet size={14} /><span>Excel</span></button>
+                  <button onClick={exportToPDF} className="w-full flex items-center space-x-3 px-3 py-2.5 text-xs font-semibold text-red-700 dark:text-rose-500 hover:bg-red-50 dark:hover:bg-slate-800 transition-colors"><FileText size={14} /><span>PDF</span></button>
+                  <button onClick={() => { window.print(); setIsExportMenuOpen(false); }} className="w-full flex items-center space-x-3 px-4 py-2.5 text-xs font-semibold text-gray-700 dark:text-slate-400 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors"><Printer size={14} /><span>Print</span></button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className={`rounded-3xl p-5 shadow-sm border-2 flex items-center space-x-4 transition-all duration-300 ${totals.cash >= 0 ? 'bg-blue-50/50 dark:bg-blue-900/10 border-blue-200 dark:border-blue-900/50 shadow-blue-50' : 'bg-rose-50 dark:bg-rose-900/10 border-rose-200 dark:border-rose-900/50 shadow-rose-50'}`}>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div onClick={() => toggleBalanceFilter('CASH')} title="Click to show only cash-related transactions" className={`cursor-pointer rounded-3xl p-5 shadow-sm border-2 flex items-center space-x-4 transition-all duration-300 ${balanceFilter === 'CASH' ? 'ring-2 ring-offset-2 ring-blue-500 dark:ring-offset-slate-950' : ''} ${totals.cash >= 0 ? 'bg-blue-50/50 dark:bg-blue-900/10 border-blue-200 dark:border-blue-900/50 shadow-blue-50' : 'bg-rose-50 dark:bg-rose-900/10 border-rose-200 dark:border-rose-900/50 shadow-rose-50'}`}>
           <div className={`p-3 rounded-2xl ${totals.cash >= 0 ? 'bg-blue-600 text-white' : 'bg-rose-600 text-white'}`}>
             <Banknote size={24} />
           </div>
@@ -675,7 +941,7 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
           </div>
         </div>
 
-        <div className={`rounded-3xl p-5 shadow-sm border-2 flex items-center space-x-4 transition-all duration-300 ${totals.gold >= 0 ? 'bg-yellow-50/50 dark:bg-yellow-900/10 border-yellow-200 dark:border-yellow-900/50 shadow-yellow-50' : 'bg-rose-50 dark:bg-rose-900/10 border-rose-200 dark:border-rose-900/50 shadow-rose-50'}`}>
+        <div onClick={() => toggleBalanceFilter('GOLD')} title="Click to show only gold-related transactions" className={`cursor-pointer rounded-3xl p-5 shadow-sm border-2 flex items-center space-x-4 transition-all duration-300 ${balanceFilter === 'GOLD' ? 'ring-2 ring-offset-2 ring-yellow-500 dark:ring-offset-slate-950' : ''} ${totals.gold >= 0 ? 'bg-yellow-50/50 dark:bg-yellow-900/10 border-yellow-200 dark:border-yellow-900/50 shadow-yellow-50' : 'bg-rose-50 dark:bg-rose-900/10 border-rose-200 dark:border-rose-900/50 shadow-rose-50'}`}>
           <div className={`p-3 rounded-2xl ${totals.gold >= 0 ? 'bg-yellow-600 text-white' : 'bg-rose-600 text-white'}`}>
             <Scale size={24} />
           </div>
@@ -690,7 +956,7 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
           </div>
         </div>
 
-        <div className={`rounded-3xl p-5 shadow-sm border-2 flex items-center space-x-4 transition-all duration-300 ${totals.silver >= 0 ? 'bg-slate-50/50 dark:bg-slate-900/10 border-slate-300 dark:border-slate-800 shadow-slate-50' : 'bg-rose-50 dark:bg-rose-900/10 border-rose-200 dark:border-rose-900/50 shadow-rose-50'}`}>
+        <div onClick={() => toggleBalanceFilter('SILVER')} title="Click to show only silver-related transactions" className={`cursor-pointer rounded-3xl p-5 shadow-sm border-2 flex items-center space-x-4 transition-all duration-300 ${balanceFilter === 'SILVER' ? 'ring-2 ring-offset-2 ring-slate-500 dark:ring-offset-slate-950' : ''} ${totals.silver >= 0 ? 'bg-slate-50/50 dark:bg-slate-900/10 border-slate-300 dark:border-slate-800 shadow-slate-50' : 'bg-rose-50 dark:bg-rose-900/10 border-rose-200 dark:border-rose-900/50 shadow-rose-50'}`}>
           <div className={`p-3 rounded-2xl ${totals.silver >= 0 ? 'bg-slate-700 dark:bg-slate-600 text-white' : 'bg-rose-600 text-white'}`}>
             <Coins size={24} />
           </div>
@@ -700,6 +966,21 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
               <h4 className={`text-3xl font-bold leading-none ${totals.silver >= 0 ? 'text-slate-900 dark:text-slate-300' : 'text-rose-900 dark:text-rose-400'}`}>{Math.abs(totals.silver).toFixed(2)}g</h4>
               <span className={`text-xs font-semibold px-2 py-1 rounded-md ${totals.silver >= 0 ? 'bg-slate-200 dark:bg-slate-800 text-slate-800 dark:text-slate-400' : 'bg-rose-200 dark:bg-rose-900/50 text-rose-800 dark:text-rose-300'}`}>
                 {totals.silver >= 0 ? 'Laina hai' : 'Daina hai'}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div onClick={() => toggleBalanceFilter('COPPER')} title="Click to show only copper-related transactions" className={`cursor-pointer rounded-3xl p-5 shadow-sm border-2 flex items-center space-x-4 transition-all duration-300 ${balanceFilter === 'COPPER' ? 'ring-2 ring-offset-2 ring-amber-600 dark:ring-offset-slate-950' : ''} ${totals.copper >= 0 ? 'bg-amber-50/50 dark:bg-amber-900/10 border-amber-300 dark:border-amber-900/50 shadow-amber-50' : 'bg-rose-50 dark:bg-rose-900/10 border-rose-200 dark:border-rose-900/50 shadow-rose-50'}`}>
+          <div className={`p-3 rounded-2xl ${totals.copper >= 0 ? 'bg-amber-700 text-white' : 'bg-rose-600 text-white'}`}>
+            <Weight size={24} />
+          </div>
+          <div className="flex-grow">
+            <p className="text-xs font-semibold text-gray-500 dark:text-slate-400 tracking-wide leading-none mb-1">Copper Balance</p>
+            <div className="flex justify-between items-end">
+              <h4 className={`text-3xl font-bold leading-none ${totals.copper >= 0 ? 'text-amber-900 dark:text-amber-400' : 'text-rose-900 dark:text-rose-400'}`}>{Math.abs(totals.copper).toFixed(2)}g</h4>
+              <span className={`text-xs font-semibold px-2 py-1 rounded-md ${totals.copper >= 0 ? 'bg-amber-200 dark:bg-amber-900/50 text-amber-800 dark:text-amber-300' : 'bg-rose-200 dark:bg-rose-900/50 text-rose-800 dark:text-rose-300'}`}>
+                {totals.copper >= 0 ? 'Laina hai' : 'Daina hai'}
               </span>
             </div>
           </div>
@@ -743,7 +1024,17 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
                 />
               </div>
 
-              {(searchTerm || filterStartDate || filterEndDate || filterType !== 'ALL') && (
+              <button
+                type="button"
+                onClick={() => setShowStarredOnly(v => !v)}
+                className={`px-3 py-2 rounded-lg text-sm font-semibold transition-all border ${showStarredOnly ? 'bg-yellow-100 text-yellow-700 border-yellow-300 dark:bg-yellow-900/30 dark:text-yellow-300 dark:border-yellow-700' : 'bg-white dark:bg-slate-900 text-gray-500 dark:text-slate-400 border-gray-200 dark:border-slate-800'}`}
+                title="Show starred entries only"
+              >
+                <Star size={14} className="inline-block mr-1" fill={showStarredOnly ? 'currentColor' : 'none'} />
+                Starred
+              </button>
+
+              {(searchTerm || filterStartDate || filterEndDate || filterType !== 'ALL' || balanceFilter !== 'ALL' || showStarredOnly) && (
                 <button 
                   onClick={clearFilters}
                   className="p-2 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/20 rounded-lg transition-all"
@@ -772,9 +1063,12 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
           <table className="min-w-full border-collapse border border-gray-300 dark:border-slate-800 text-sm">
             <thead className="bg-gray-100 dark:bg-slate-800 font-semibold text-gray-600 dark:text-slate-400 tracking-wide transition-colors duration-300">
               <tr>
+                <th className="px-2 py-4 text-center border border-gray-300 dark:border-slate-700">★</th>
                 <th className="px-3 py-4 text-left border border-gray-300 dark:border-slate-700">Sr No</th>
                 <th className="px-3 py-4 text-left border border-gray-300 dark:border-slate-700">Date</th>
+                <th className="px-3 py-4 text-left border border-gray-300 dark:border-slate-700">Time</th>
                 <th className="px-3 py-4 text-left border border-gray-300 dark:border-slate-700">Description</th>
+                <th className="px-3 py-4 text-left border border-gray-300 dark:border-slate-700">Remarks</th>
                 <th className="px-3 py-4 text-right border border-gray-300 dark:border-slate-700">Impure (g)</th>
                 <th className="px-3 py-4 text-right border border-gray-300 dark:border-slate-700">Point/Karat</th>
                 <th className="px-3 py-4 text-right border border-gray-300 dark:border-slate-700">Pure (g)</th>
@@ -784,29 +1078,40 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
                 <th className="px-3 py-4 text-right border border-gray-300 dark:border-slate-700">Cash Balance (Rs)</th>
                 <th className="px-3 py-4 text-right border border-gray-300 dark:border-slate-700">Gold Bal (g)</th>
                 <th className="px-3 py-4 text-right border border-gray-300 dark:border-slate-700">Silver Bal (g)</th>
+                <th className="px-3 py-4 text-right border border-gray-300 dark:border-slate-700">Copper Bal (g)</th>
                 <th className="px-3 py-4 text-center border border-gray-300 dark:border-slate-700">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-300 dark:divide-slate-800">
-              {ledgerData.length === 0 ? (
-                <tr><td colSpan={13} className="px-4 py-12 text-center text-gray-400 dark:text-slate-600 font-medium border border-gray-300 dark:border-slate-800 transition-colors">No transactions recorded</td></tr>
+              {tableDisplayData.length === 0 ? (
+                <tr><td colSpan={17} className="px-4 py-12 text-center text-gray-400 dark:text-slate-600 font-medium border border-gray-300 dark:border-slate-800 transition-colors">No transactions recorded</td></tr>
               ) : (
-                ledgerData.map((t, index) => (
-                  <tr key={t.id} className={`transition-colors group border-b border-gray-300 dark:border-slate-800 ${usePlainTable ? 'bg-white dark:bg-slate-900 hover:bg-gray-50 dark:hover:bg-slate-800' : (index % 2 === 0 ? 'bg-[#CAF0F8] dark:bg-indigo-950/40' : 'bg-[#90E0EF] dark:bg-indigo-900/20')}`}>
+                tableDisplayData.map((t, index) => (
+                  <tr key={t.id} className={`transition-colors group border-b border-gray-300 dark:border-slate-800 ${starredIds.has(t.id) ? 'ring-1 ring-yellow-300 dark:ring-yellow-700 bg-yellow-50 dark:bg-yellow-950/20' : ''} ${usePlainTable ? 'bg-white dark:bg-slate-900 hover:bg-gray-50 dark:hover:bg-slate-800' : (index % 2 === 0 ? 'bg-[#CAF0F8] dark:bg-indigo-950/40' : 'bg-[#90E0EF] dark:bg-indigo-900/20')}`}>
+                    <td className="px-2 py-2 text-center font-semibold text-gray-700 dark:text-slate-400 border-r border-gray-300 dark:border-slate-800">
+                      <button onClick={() => toggleStar(t.id)} className={`inline-flex items-center justify-center rounded transition-colors ${starredIds.has(t.id) ? 'text-yellow-500' : 'text-gray-300 dark:text-slate-700 hover:text-yellow-400'}`} title="Star this entry">
+                        <Star size={14} fill={starredIds.has(t.id) ? 'currentColor' : 'none'} />
+                      </button>
+                    </td>
                     <td className="px-3 py-2 font-semibold text-gray-700 dark:text-slate-400 border-r border-gray-300 dark:border-slate-800">{t.srNo}</td>
                     <td className="px-3 py-2 font-medium text-gray-800 dark:text-slate-300 border-r border-gray-300 dark:border-slate-800">{format(parseDateString(t.date), 'dd/MM/yy')}</td>
+                    <td className="px-3 py-2 text-xs font-medium text-gray-500 dark:text-slate-500 border-r border-gray-300 dark:border-slate-800">{formatEntryTime(t)}</td>
                     <td className="px-3 py-2 border-r border-gray-300 dark:border-slate-800">
                       <div className="font-semibold text-indigo-900 dark:text-indigo-400 leading-none">{formatType(t.type)}</div>
-                      <div className="text-xs text-gray-500 dark:text-slate-500 italic mt-0.5">{t.remarks}</div>
-                      {t.referenceNo && <div className="text-xs font-semibold text-indigo-700 dark:text-indigo-500 mt-0.5">Ref: {t.referenceNo}</div>}
+                      {t.referenceNo && (
+                        <div className="text-xs font-semibold text-indigo-700 dark:text-indigo-500 mt-0.5">
+                          Ref: {t.referenceNo}{getBankName(t.bankId) && <span className="text-indigo-500 dark:text-indigo-400"> • {getBankName(t.bankId)}</span>}
+                        </div>
+                      )}
                     </td>
+                    <td className="px-3 py-2 text-sm text-gray-600 dark:text-slate-400 italic border-r border-gray-300 dark:border-slate-800">{t.remarks || '-'}</td>
                     <td className="px-3 py-2 text-right font-medium text-gray-700 dark:text-slate-400 border-r border-gray-300 dark:border-slate-800">{t.impureWeight?.toFixed(2) || '-'}</td>
                     <td className="px-3 py-2 text-right font-medium text-gray-700 dark:text-slate-400 border-r border-gray-300 dark:border-slate-800">
                       {t.point ? `${t.point} (P)` : (t.karat ? `${t.karat} (K)` : '-')}
                     </td>
                     <td className="px-3 py-2 text-right font-bold border-r border-gray-300 dark:border-slate-800">
-                      <span className={(t.type.includes('BUY') || t.goldIn || t.silverIn) ? 'text-green-700 dark:text-green-400' : 'text-rose-700 dark:text-rose-400'}>
-                        {(t.goldWeight || t.goldIn || t.goldOut || t.silverWeight || t.silverIn || t.silverOut || 0).toFixed(3)}
+                      <span className={(t.type.includes('BUY') || t.goldIn || t.silverIn || t.copperIn) ? 'text-green-700 dark:text-green-400' : 'text-rose-700 dark:text-rose-400'}>
+                        {(t.goldWeight || t.goldIn || t.goldOut || t.silverWeight || t.silverIn || t.silverOut || t.copperWeight || t.copperIn || t.copperOut || 0).toFixed(3)}
                       </span>
                     </td>
                     <td className="px-3 py-2 text-right font-medium text-gray-700 dark:text-slate-400 border-r border-gray-300 dark:border-slate-800">{((t.rateMode || 'TOLA') === 'GRAM' ? (t.rate || 0) : (t.rate || 0) * TOLA_WEIGHT).toLocaleString(undefined, { maximumFractionDigits: 2 })}</td>
@@ -820,14 +1125,31 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
                     </td>
                     <td className="px-3 py-2 text-right font-semibold text-yellow-700 dark:text-yellow-400 border-r border-gray-300 dark:border-slate-800">
                       {Math.abs(t.remainingGold).toFixed(3)}
+                      <span className={`text-[8px] ml-1 font-bold ${t.remainingGold >= 0 ? 'text-green-700 dark:text-green-400' : 'text-rose-700 dark:text-rose-400'}`}>
+                        {t.remainingGold >= 0 ? 'LAINE' : 'DAINE'}
+                      </span>
                     </td>
                     <td className="px-3 py-2 text-right font-semibold text-slate-700 dark:text-slate-400 border-r border-gray-300 dark:border-slate-800">
                       {Math.abs(t.remainingSilver).toFixed(2)}
+                      <span className={`text-[8px] ml-1 font-bold ${t.remainingSilver >= 0 ? 'text-green-700 dark:text-green-400' : 'text-rose-700 dark:text-rose-400'}`}>
+                        {t.remainingSilver >= 0 ? 'LAINE' : 'DAINE'}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 text-right font-semibold text-amber-700 dark:text-amber-400 border-r border-gray-300 dark:border-slate-800">
+                      {Math.abs(t.remainingCopper).toFixed(2)}
+                      <span className={`text-[8px] ml-1 font-bold ${t.remainingCopper >= 0 ? 'text-green-700 dark:text-green-400' : 'text-rose-700 dark:text-rose-400'}`}>
+                        {t.remainingCopper >= 0 ? 'LAINE' : 'DAINE'}
+                      </span>
                     </td>
                     <td className="px-3 py-2 text-center transition-colors">
-                      <div className="flex justify-center space-x-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-                        <button onClick={() => setEditingTransaction(t)} className="p-1 text-blue-700 dark:text-blue-400 hover:bg-white/50 dark:hover:bg-slate-700 rounded transition-colors"><Edit2 size={12} /></button>
-                        <button onClick={() => setDeletingId(t.id)} className="p-1 text-red-700 dark:text-rose-400 hover:bg-white/50 dark:hover:bg-slate-700 rounded transition-colors"><Trash2 size={12} /></button>
+                      <div className="flex justify-center items-center space-x-1">
+                        {t.attachmentId && (
+                          <button onClick={() => handleDownloadAttachment(t.attachmentId!, t.attachmentName || 'attachment')} className="p-1 text-indigo-600 dark:text-indigo-400 hover:bg-white/50 dark:hover:bg-slate-700 rounded transition-colors" title={t.attachmentName || 'Download attachment'}><Paperclip size={12} /></button>
+                        )}
+                        <div className="flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                          <button onClick={() => setEditingTransaction(t)} className="p-1 text-blue-700 dark:text-blue-400 hover:bg-white/50 dark:hover:bg-slate-700 rounded transition-colors"><Edit2 size={12} /></button>
+                          <button onClick={() => setDeletingId(t.id)} className="p-1 text-red-700 dark:text-rose-400 hover:bg-white/50 dark:hover:bg-slate-700 rounded transition-colors"><Trash2 size={12} /></button>
+                        </div>
                       </div>
                     </td>
                   </tr>
@@ -846,16 +1168,20 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
               <button onClick={() => { setIsTxModalOpen(false); setEditingTransaction(null); }} className="text-gray-400 dark:text-slate-500 hover:text-gray-600 dark:hover:text-slate-300 p-1.5"><X size={20} /></button>
             </div>
 
-            <div className="grid grid-cols-4 sm:grid-cols-7 gap-1.5 mb-6">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-1.5 mb-6">
               {[
                 { id: TransactionType.BUY_GOLD, label: 'Buy Gold', c: 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' },
                 { id: TransactionType.SELL_GOLD, label: 'Sell Gold', c: 'bg-rose-100 dark:bg-rose-900/30 text-rose-700 dark:text-rose-400' },
                 { id: TransactionType.BUY_SILVER, label: 'Buy Silver', c: 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400' },
                 { id: TransactionType.SELL_SILVER, label: 'Sell Silver', c: 'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400' },
+                { id: TransactionType.BUY_COPPER, label: 'Buy Copper', c: 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400' },
+                { id: TransactionType.SELL_COPPER, label: 'Sell Copper', c: 'bg-stone-100 dark:bg-stone-700/30 text-stone-700 dark:text-stone-400' },
                 { id: TransactionType.CASH_PAYMENT, label: 'Cash Entry', c: 'bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-400' },
+                { id: TransactionType.LEDGER_TRANSFER, label: 'Ledger Transfer', c: 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400' },
                 { id: TransactionType.GOLD_SETTLEMENT, label: 'Gold Settle', c: 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400' },
-                { id: TransactionType.SILVER_SETTLEMENT, label: 'Silver Settle', c: 'bg-slate-100 dark:bg-slate-700/30 text-slate-700 dark:text-slate-400' }
-              ].map(tab => (
+                { id: TransactionType.SILVER_SETTLEMENT, label: 'Silver Settle', c: 'bg-slate-100 dark:bg-slate-700/30 text-slate-700 dark:text-slate-400' },
+                { id: TransactionType.COPPER_SETTLEMENT, label: 'Copper Settle', c: 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400' }
+              ].filter(tab => !visibleTabTypes || visibleTabTypes.has(tab.id)).map(tab => (
                 <button key={tab.id} onClick={() => handleTabChange(tab.id)} className={`min-h-11 px-2.5 py-2.5 rounded-xl border transition-all font-semibold text-[10px] leading-tight flex flex-col items-center justify-center gap-1 ${activeForm === tab.id ? `${tab.c} border-indigo-500 shadow-sm` : 'border-gray-100 dark:border-slate-800 text-gray-500 dark:text-slate-500 hover:border-gray-300 dark:hover:border-slate-600'}`}>{tab.label}</button>
               ))}
             </div>
@@ -894,9 +1220,19 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
                           {isMetalTrade && (
                              <div className="flex justify-between items-center mb-2">
                                 <span className="text-[8px] font-black uppercase text-gray-400 dark:text-slate-500">Entry Mode</span>
-                                <div className="flex bg-white dark:bg-slate-900 rounded-lg p-1 border border-gray-200 dark:border-slate-700 shadow-inner">
-                                  <button type="button" onClick={() => setIsCalcMode(false)} className={`px-3 py-1 rounded-md text-xs font-semibold transition-all ${!isCalcMode ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-400 dark:text-slate-500'}`}>Manual Wt</button>
-                                  <button type="button" onClick={() => setIsCalcMode(true)} className={`px-3 py-1 rounded-md text-xs font-semibold transition-all ${isCalcMode ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-400 dark:text-slate-500'}`}>Use Calc</button>
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => setUseAltTola(prev => !prev)}
+                                    title="Toggle Tola standard: 1 Tola = 12.15 grams (instead of 11.664)"
+                                    className={`px-3 py-1 rounded-lg text-xs font-semibold border transition-all ${useAltTola ? 'bg-amber-500 border-amber-600 text-white shadow-sm' : 'bg-white dark:bg-slate-900 border-gray-200 dark:border-slate-700 text-gray-400 dark:text-slate-500'}`}
+                                  >
+                                    12.15 Mode
+                                  </button>
+                                  <div className="flex bg-white dark:bg-slate-900 rounded-lg p-1 border border-gray-200 dark:border-slate-700 shadow-inner">
+                                    <button type="button" onClick={() => setIsCalcMode(false)} className={`px-3 py-1 rounded-md text-xs font-semibold transition-all ${!isCalcMode ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-400 dark:text-slate-500'}`}>Manual Wt</button>
+                                    <button type="button" onClick={() => setIsCalcMode(true)} className={`px-3 py-1 rounded-md text-xs font-semibold transition-all ${isCalcMode ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-400 dark:text-slate-500'}`}>Use Calc</button>
+                                  </div>
                                 </div>
                              </div>
                           )}
@@ -947,7 +1283,7 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
                           ) : (
                              <div className="flex flex-col gap-3">
                                <div className="flex justify-between items-center">
-                                  <label className="block text-[7px] font-black uppercase text-gray-400 dark:text-slate-500">Weight Unit</label>
+                                  <label className="block text-[7px] font-black uppercase text-gray-400 dark:text-slate-500">Weight Unit {weightMode === 'TOLA' && (<span className="normal-case text-indigo-400 dark:text-indigo-500 font-semibold">(1 Tola = {activeTolaWeight}g)</span>)}</label>
                                   <div className="flex bg-white dark:bg-slate-900 rounded-lg p-1 border border-gray-200 dark:border-slate-700 shadow-inner">
                                     <button type="button" onClick={() => setWeightMode('GRAM')} className={`px-3 py-1 rounded-md text-[8px] font-black uppercase transition-all ${weightMode === 'GRAM' ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-400 dark:text-slate-500'}`}>Gram</button>
                                     <button type="button" onClick={() => setWeightMode('TOLA')} className={`px-3 py-1 rounded-md text-[8px] font-black uppercase transition-all ${weightMode === 'TOLA' ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-400 dark:text-slate-500'}`}>Tola</button>
@@ -990,6 +1326,17 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
                             const raw = e.target.value;
                             setRateInput(raw);
                             const val = evaluateMath(raw);
+                            if (totalAmountInput) {
+                              const newRate = rateMode === 'TOLA' ? val / activeTolaWeight : val;
+                              const newRatePerTola = rateMode === 'TOLA' ? val : val * activeTolaWeight;
+                              const total = evaluateMath(totalAmountInput);
+                              if (total > 0 && newRate > 0) {
+                                const gramWeight = total * activeTolaWeight / newRatePerTola;
+                                setFormData({ ...formData, rate: newRate, ratePerTola: newRatePerTola, weight: gramWeight, impureWeight: 0, point: 0, karat: 24 });
+                                setWeightInput(parseFloat(gramWeight.toFixed(4)).toString());
+                                return;
+                              }
+                            }
                             if (rateMode === 'TOLA') handleRatePerTolaChange(val);
                             else handleRateChange(val);
                           }} 
@@ -1001,9 +1348,15 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
                           </div>
                         )}
                       </div>
-                      <div className="text-right p-3 bg-white dark:bg-slate-900 rounded-xl border border-indigo-100 dark:border-indigo-900 shadow-inner">
-                         <span className="text-xs font-semibold text-indigo-400 block mb-0.5">Total Value</span>
-                         <span className="text-2xl font-bold text-indigo-900 dark:text-indigo-400 leading-none">Rs. {Math.round(formData.weight * (formData.rate || 0)).toLocaleString()}</span>
+                      <div className="flex flex-col p-3 bg-white dark:bg-slate-900 rounded-xl border border-indigo-100 dark:border-indigo-900 shadow-inner">
+                         <span className="text-xs font-semibold text-indigo-400 block mb-1">Total Amount (Rs)</span>
+                         <input
+                           type="text"
+                           className="w-full outline-none bg-transparent text-xl font-bold text-indigo-900 dark:text-indigo-400 placeholder:text-indigo-300 dark:placeholder:text-indigo-700"
+                           value={totalAmountInput}
+                           onChange={e => handleTotalAmountChange(e.target.value)}
+                           placeholder={formData.weight > 0 && formData.rate > 0 ? `Rs. ${Math.round(formData.weight * formData.rate).toLocaleString()}` : 'Rs. 0'}
+                         />
                       </div>
                     </div>
                  </div>
@@ -1028,14 +1381,126 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
                  </div>
                )}
 
+               {isTransfer && (
+                 <div className="space-y-3">
+                    <div className="p-3 bg-purple-50 dark:bg-purple-950/20 border border-purple-100 dark:border-purple-900 rounded-xl text-xs font-medium text-purple-700 dark:text-purple-400 flex items-start gap-2">
+                      <Info size={14} className="mt-0.5 shrink-0" />
+                      <span>Move cash or gold directly between two ledgers. The amount/weight is deducted from one ledger and credited to the other, both linked by the same reference number.</span>
+                    </div>
+
+                    <div>
+                      <label className="block text-[8px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest mb-1">Transfer Asset</label>
+                      <div className="flex bg-gray-100 dark:bg-slate-800 p-1 rounded-lg border border-gray-200 dark:border-slate-700">
+                        <button type="button" onClick={() => { setFormData({...formData, transferAsset: 'CASH'}); setWeightInput(''); }} className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-md font-black uppercase text-[8px] transition-all ${formData.transferAsset === 'CASH' ? 'bg-purple-600 text-white shadow-sm' : 'text-gray-400 dark:text-slate-500 hover:text-gray-500 dark:hover:text-slate-300'}`}><Wallet size={12} />Cash</button>
+                        <button type="button" onClick={() => { setFormData({...formData, transferAsset: 'GOLD'}); setAmountInput(''); }} className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-md font-black uppercase text-[8px] transition-all ${formData.transferAsset === 'GOLD' ? 'bg-amber-500 text-white shadow-sm' : 'text-gray-400 dark:text-slate-500 hover:text-gray-500 dark:hover:text-slate-300'}`}><Scale size={12} />Gold</button>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-[8px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest mb-1">Select Other Ledger</label>
+                      <div className="relative">
+                        <input
+                          type="text"
+                          className="w-full p-2.5 pl-8 pr-8 border border-gray-200 dark:border-slate-800 rounded-lg text-sm font-medium bg-gray-50 dark:bg-slate-800 dark:text-slate-100 outline-none focus:ring-1 focus:ring-indigo-500"
+                          placeholder="Search customer ledger..."
+                          value={isTransferLedgerListOpen ? transferLedgerSearch : (transferTargets.find(c => c.id === formData.transferCustomerId)?.name || '')}
+                          onFocus={() => { setIsTransferLedgerListOpen(true); setTransferLedgerSearch(''); }}
+                          onChange={e => setTransferLedgerSearch(e.target.value)}
+                          onBlur={() => setTimeout(() => setIsTransferLedgerListOpen(false), 150)}
+                        />
+                        <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-300 dark:text-slate-600" />
+                        {formData.transferCustomerId && !isTransferLedgerListOpen && (
+                          <button
+                            type="button"
+                            onClick={() => setFormData({...formData, transferCustomerId: ''})}
+                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-300 dark:text-slate-600 hover:text-rose-500"
+                            title="Clear selection"
+                          >
+                            <X size={14} />
+                          </button>
+                        )}
+                        {isTransferLedgerListOpen && (
+                          <div className="absolute z-20 mt-1 w-full max-h-48 overflow-y-auto bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-lg shadow-lg">
+                            {filteredTransferTargets.length === 0 ? (
+                              <div className="px-3 py-2 text-xs text-gray-400 dark:text-slate-500">No matching ledgers</div>
+                            ) : filteredTransferTargets.map(c => (
+                              <button
+                                type="button"
+                                key={c.id}
+                                onMouseDown={e => e.preventDefault()}
+                                onClick={() => { setFormData({...formData, transferCustomerId: c.id}); setTransferLedgerSearch(''); setIsTransferLedgerListOpen(false); }}
+                                className={`w-full text-left px-3 py-2 text-sm font-medium hover:bg-indigo-50 dark:hover:bg-slate-800 transition-colors ${formData.transferCustomerId === c.id ? 'bg-indigo-50 dark:bg-slate-800 text-indigo-700 dark:text-indigo-400' : 'text-gray-700 dark:text-slate-200'}`}
+                              >
+                                {c.name}{c.address ? <span className="text-gray-400 dark:text-slate-500"> ({c.address})</span> : ''}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-[8px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest mb-1">Direction</label>
+                      <div className="flex bg-gray-100 dark:bg-slate-800 p-1 rounded-lg border border-gray-200 dark:border-slate-700">
+                        <button type="button" onClick={() => setFormData({...formData, direction: 'OUT'})} className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-md font-black uppercase text-[8px] transition-all ${formData.direction === 'OUT' ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-400 dark:text-slate-500 hover:text-gray-500 dark:hover:text-slate-300'}`}><ArrowUpRight size={12} />Pay To Selected Ledger</button>
+                        <button type="button" onClick={() => setFormData({...formData, direction: 'IN'})} className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-md font-black uppercase text-[8px] transition-all ${formData.direction === 'IN' ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-400 dark:text-slate-500 hover:text-gray-500 dark:hover:text-slate-300'}`}><ArrowDownLeft size={12} />Receive From Selected Ledger</button>
+                      </div>
+                    </div>
+
+                    {formData.transferAsset === 'GOLD' ? (
+                      <div className="relative">
+                          <input required className="w-full p-5 border-2 border-amber-100 dark:border-amber-900 bg-amber-50/20 dark:bg-amber-950/20 rounded-2xl font-bold text-3xl text-amber-900 dark:text-amber-300 shadow-inner focus:ring-1 focus:ring-amber-500 outline-none placeholder:text-amber-200 dark:placeholder:text-amber-900" type="text" value={weightInput} onChange={e => { setWeightInput(e.target.value); setFormData({...formData, weight: evaluateMath(e.target.value)}); }} placeholder="0.000" />
+                          <div className="absolute right-5 top-1/2 -translate-y-1/2 text-amber-200 dark:text-amber-900 font-semibold text-sm">GRAMS</div>
+                      </div>
+                    ) : (
+                      <div className="relative">
+                          <input required className="w-full p-5 border-2 border-purple-100 dark:border-purple-900 bg-purple-50/20 dark:bg-purple-950/20 rounded-2xl font-bold text-3xl text-purple-900 dark:text-purple-300 shadow-inner focus:ring-1 focus:ring-purple-500 outline-none placeholder:text-purple-200 dark:placeholder:text-purple-900" type="text" value={amountInput} onChange={e => { setAmountInput(e.target.value); setFormData({...formData, amount: evaluateMath(e.target.value)}); }} placeholder="0.00" />
+                          <div className="absolute right-5 top-1/2 -translate-y-1/2 text-purple-200 dark:text-purple-900 font-semibold text-sm">PKR</div>
+                      </div>
+                    )}
+
+                    {formData.transferCustomerId && (formData.transferAsset === 'GOLD' ? formData.weight > 0 : formData.amount > 0) && (
+                      <div className="p-3 bg-gray-50 dark:bg-slate-800 rounded-xl text-xs font-semibold text-gray-600 dark:text-slate-300 text-center">
+                        {formData.transferAsset === 'GOLD' ? `${formData.weight.toLocaleString()}g Gold` : `Rs. ${formData.amount.toLocaleString()}`} will move from{' '}
+                        <span className="text-rose-600 dark:text-rose-400">{formData.direction === 'OUT' ? customer.name : (transferTargets.find(c => c.id === formData.transferCustomerId)?.name || '')}</span>
+                        {' '}to{' '}
+                        <span className="text-green-600 dark:text-green-400">{formData.direction === 'OUT' ? (transferTargets.find(c => c.id === formData.transferCustomerId)?.name || '') : customer.name}</span>
+                      </div>
+                    )}
+                 </div>
+               )}
+
                <div className="relative">
                     <textarea className="w-full p-3 border border-gray-200 dark:border-slate-800 rounded-xl h-20 text-sm bg-gray-50 dark:bg-slate-800 dark:text-slate-100 outline-none focus:ring-1 focus:ring-indigo-500 transition-all font-medium placeholder:italic dark:placeholder:text-slate-600" value={formData.remarks} onChange={e => setFormData({...formData, remarks: e.target.value})} placeholder="Trade notes or item description..." />
                   <div className="absolute right-2.5 bottom-2.5 text-gray-300 dark:text-slate-700"><FileText size={16} /></div>
                </div>
 
+               <div>
+                 <label className="block text-xs font-semibold text-gray-500 dark:text-slate-400 tracking-wide mb-1">Attach File / Image <span className="text-gray-400 font-normal">(optional)</span></label>
+                 {formData.attachmentId ? (
+                   <div className="flex items-center justify-between gap-2 p-2.5 border border-gray-200 dark:border-slate-800 rounded-xl bg-gray-50 dark:bg-slate-800">
+                     <div className="flex items-center gap-2 min-w-0">
+                       <Paperclip size={14} className="text-gray-400 dark:text-slate-500 shrink-0" />
+                       <span className="text-xs font-medium text-gray-700 dark:text-slate-300 truncate">{formData.attachmentName}</span>
+                     </div>
+                     <div className="flex items-center gap-1 shrink-0">
+                       <button type="button" onClick={() => handleDownloadAttachment(formData.attachmentId, formData.attachmentName)} className="p-1.5 text-indigo-600 dark:text-indigo-400 hover:bg-white dark:hover:bg-slate-700 rounded-lg transition-colors" title="Download"><Download size={14} /></button>
+                       <button type="button" onClick={handleRemoveAttachment} className="p-1.5 text-rose-600 dark:text-rose-400 hover:bg-white dark:hover:bg-slate-700 rounded-lg transition-colors" title="Remove"><X size={14} /></button>
+                     </div>
+                   </div>
+                 ) : (
+                   <label className={`flex items-center justify-center gap-2 p-3 border-2 border-dashed border-gray-200 dark:border-slate-800 rounded-xl text-xs font-semibold text-gray-400 dark:text-slate-500 cursor-pointer hover:border-indigo-300 hover:text-indigo-500 transition-colors ${isUploadingFile ? 'opacity-50 pointer-events-none' : ''}`}>
+                     <Paperclip size={14} />
+                     <span>{isUploadingFile ? 'Uploading...' : 'Choose a file or image to attach'}</span>
+                     <input type="file" className="hidden" onChange={handleFileSelect} disabled={isUploadingFile} />
+                   </label>
+                 )}
+                 {fileError && <p className="text-xs text-rose-600 dark:text-rose-400 mt-1">{fileError}</p>}
+               </div>
+
                   {refError && (<div className="p-3 bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-400 text-sm font-medium rounded-xl border border-rose-100 dark:border-rose-900 animate-pulse flex items-center gap-2"><AlertTriangle size={16} /><span>{refError}</span></div>)}
 
-                  <button type="submit" className="w-full py-4 bg-indigo-900 dark:bg-indigo-600 text-white rounded-xl font-semibold text-sm tracking-wide hover:bg-black dark:hover:bg-indigo-700 transition-all shadow-lg active:scale-[0.99]">Post Final Transaction</button>
+                  <button type="submit" className="w-full py-4 bg-indigo-900 dark:bg-indigo-600 text-white rounded-xl font-semibold text-sm tracking-wide hover:bg-black dark:hover:bg-indigo-700 transition-all shadow-lg active:scale-[0.99]">{isTransfer ? 'Confirm Ledger Transfer' : 'Post Final Transaction'}</button>
             </form>
           </div>
         </div>

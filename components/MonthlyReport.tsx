@@ -12,9 +12,11 @@ const TOLA_WEIGHT = 11.664;
 interface MonthlyReportProps {
   transactions: Transaction[];
   customers: Customer[];
+  projectName: string;
+  shopPhone: string;
 }
 
-const MonthlyReport: React.FC<MonthlyReportProps> = ({ transactions, customers }) => {
+const MonthlyReport: React.FC<MonthlyReportProps> = ({ transactions, customers, projectName, shopPhone }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState<string>('ALL');
   const [dateRange, setDateRange] = useState({
@@ -29,7 +31,8 @@ const MonthlyReport: React.FC<MonthlyReportProps> = ({ transactions, customers }
     return transactions.filter(t => {
       const isTrade = [
         TransactionType.BUY_GOLD, TransactionType.SELL_GOLD,
-        TransactionType.BUY_SILVER, TransactionType.SELL_SILVER
+        TransactionType.BUY_SILVER, TransactionType.SELL_SILVER,
+        TransactionType.BUY_COPPER, TransactionType.SELL_COPPER
       ].includes(t.type);
       if (!isTrade) return false;
 
@@ -52,7 +55,7 @@ const MonthlyReport: React.FC<MonthlyReportProps> = ({ transactions, customers }
 
   const totals = useMemo(() => {
     return reportData.reduce((acc, t) => {
-      const value = (t.goldWeight || t.silverWeight || 0) * (t.rate || 0);
+      const value = (t.goldWeight || t.silverWeight || t.copperWeight || 0) * (t.rate || 0);
       if (t.type === TransactionType.BUY_GOLD) {
         acc.buyGold += (t.goldWeight || 0);
         acc.buyAmount += value;
@@ -65,9 +68,15 @@ const MonthlyReport: React.FC<MonthlyReportProps> = ({ transactions, customers }
       } else if (t.type === TransactionType.SELL_SILVER) {
         acc.sellSilver += (t.silverWeight || 0);
         acc.sellAmount += value;
+      } else if (t.type === TransactionType.BUY_COPPER) {
+        acc.buyCopper += (t.copperWeight || 0);
+        acc.buyAmount += value;
+      } else if (t.type === TransactionType.SELL_COPPER) {
+        acc.sellCopper += (t.copperWeight || 0);
+        acc.sellAmount += value;
       }
       return acc;
-    }, { buyGold: 0, sellGold: 0, buySilver: 0, sellSilver: 0, buyAmount: 0, sellAmount: 0 });
+    }, { buyGold: 0, sellGold: 0, buySilver: 0, sellSilver: 0, buyCopper: 0, sellCopper: 0, buyAmount: 0, sellAmount: 0 });
   }, [reportData]);
 
   const exportToExcel = () => {
@@ -75,10 +84,10 @@ const MonthlyReport: React.FC<MonthlyReportProps> = ({ transactions, customers }
       'Date': format(new Date(t.date), 'dd/MM/yyyy'),
       'Customer': getCustomerName(t.customerId),
       'Type': t.type.split('_').join(' '),
-      'Metal': t.type.includes('GOLD') ? 'Gold' : 'Silver',
-      'Weight (g)': (t.goldWeight || t.silverWeight || 0).toFixed(3),
+      'Metal': t.type.includes('GOLD') ? 'Gold' : t.type.includes('SILVER') ? 'Silver' : 'Copper',
+      'Weight (g)': (t.goldWeight || t.silverWeight || t.copperWeight || 0).toFixed(3),
       'Rate (Tola)': t.rate ? (t.rate * TOLA_WEIGHT).toFixed(2) : 0,
-      'PKR Value': Math.round((t.goldWeight || t.silverWeight || 0) * (t.rate || 0)),
+      'PKR Value': Math.round((t.goldWeight || t.silverWeight || t.copperWeight || 0) * (t.rate || 0)),
       'Remarks': t.remarks || ''
     }));
     const ws = XLSX.utils.json_to_sheet(data);
@@ -93,11 +102,11 @@ const MonthlyReport: React.FC<MonthlyReportProps> = ({ transactions, customers }
     doc.setFontSize(22);
     doc.setTextColor(30, 41, 59);
     doc.setFont('helvetica', 'bold');
-    doc.text('New Jehlum  Gold Smith', 14, 20);
+    doc.text(projectName, 14, 20);
     doc.setFontSize(10);
     doc.setTextColor(100, 116, 139);
     doc.setFont('helvetica', 'normal');
-    doc.text('Ph: +92 321 6090043 | Activity Statement', 14, 27);
+    doc.text(shopPhone ? `Ph: ${shopPhone} | Activity Statement` : 'Activity Statement', 14, 27);
     doc.setDrawColor(226, 232, 240);
     doc.line(14, 32, 196, 32);
     doc.setFontSize(12);
@@ -114,9 +123,9 @@ const MonthlyReport: React.FC<MonthlyReportProps> = ({ transactions, customers }
         format(new Date(t.date), 'dd/MM/yy'),
         getCustomerName(t.customerId),
         t.type.split('_')[0],
-        `${(t.goldWeight || t.silverWeight || 0).toFixed(3)}g`,
+        `${(t.goldWeight || t.silverWeight || t.copperWeight || 0).toFixed(3)}g`,
         ((t.rate || 0) * TOLA_WEIGHT).toLocaleString(undefined, { maximumFractionDigits: 2 }),
-        Math.round((t.goldWeight || t.silverWeight || 0) * (t.rate || 0)).toLocaleString()
+        Math.round((t.goldWeight || t.silverWeight || t.copperWeight || 0) * (t.rate || 0)).toLocaleString()
       ]),
       theme: 'grid',
       headStyles: { fillColor: [67, 56, 202] }
@@ -183,6 +192,8 @@ const MonthlyReport: React.FC<MonthlyReportProps> = ({ transactions, customers }
               <option value={TransactionType.SELL_GOLD}>Gold Sales</option>
               <option value={TransactionType.BUY_SILVER}>Silver Purchases</option>
               <option value={TransactionType.SELL_SILVER}>Silver Sales</option>
+              <option value={TransactionType.BUY_COPPER}>Copper Purchases</option>
+              <option value={TransactionType.SELL_COPPER}>Copper Sales</option>
             </select>
           </div>
 
@@ -214,7 +225,7 @@ const MonthlyReport: React.FC<MonthlyReportProps> = ({ transactions, customers }
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl shadow-sm border border-yellow-100 dark:border-yellow-900/30 flex items-center justify-between transition-colors duration-300">
           <div>
             <div className="flex items-center space-x-3 text-yellow-600 dark:text-yellow-500 mb-2">
@@ -246,6 +257,23 @@ const MonthlyReport: React.FC<MonthlyReportProps> = ({ transactions, customers }
           <div className="text-right">
             <p className="text-xs font-semibold text-gray-400 dark:text-slate-500">Volume</p>
             <p className="text-2xl font-bold text-slate-800 dark:text-slate-300">{(totals.buySilver + totals.sellSilver).toFixed(2)}g</p>
+          </div>
+        </div>
+
+        <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl shadow-sm border border-amber-100 dark:border-amber-900/30 flex items-center justify-between transition-colors duration-300">
+          <div>
+            <div className="flex items-center space-x-3 text-amber-700 dark:text-amber-500 mb-2">
+              <Layers size={20} />
+              <span className="text-xs font-semibold tracking-wide">Copper Stats</span>
+            </div>
+            <div className="space-y-0.5">
+              <p className="text-xs text-gray-500 dark:text-slate-400 font-medium">IN: <span className="text-gray-900 dark:text-slate-200 font-semibold">{totals.buyCopper.toFixed(2)}g</span></p>
+              <p className="text-xs text-gray-500 dark:text-slate-400 font-medium">OUT: <span className="text-gray-900 dark:text-slate-200 font-semibold">{totals.sellCopper.toFixed(2)}g</span></p>
+            </div>
+          </div>
+          <div className="text-right">
+            <p className="text-xs font-semibold text-gray-400 dark:text-slate-500">Volume</p>
+            <p className="text-2xl font-bold text-amber-800 dark:text-amber-400">{(totals.buyCopper + totals.sellCopper).toFixed(2)}g</p>
           </div>
         </div>
 
@@ -297,7 +325,7 @@ const MonthlyReport: React.FC<MonthlyReportProps> = ({ transactions, customers }
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex items-center space-x-2">
-                        <span className={`px-2 py-1 rounded text-xs font-semibold ${t.type.includes('GOLD') ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-400'}`}>
+                        <span className={`px-2 py-1 rounded text-xs font-semibold ${t.type.includes('GOLD') ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400' : t.type.includes('SILVER') ? 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-400' : 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400'}`}>
                           {t.type.includes('GOLD') ? 'Gold' : 'Silver'}
                         </span>
                         <span className={`text-xs font-semibold ${t.type.includes('BUY') ? 'text-green-600 dark:text-green-400' : 'text-rose-600 dark:text-rose-400'}`}>

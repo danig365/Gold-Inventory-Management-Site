@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { Customer, Transaction, TransactionType } from '../types';
+import { Customer, Transaction, TransactionType, Bank, PaymentMethod } from '../types';
 import { UserPlus, Search, ArrowRight, User, Scale, Coins, Wallet, Landmark, Download, FileSpreadsheet, FileText, ChevronDown, Edit2, Trash2, AlertTriangle, X, Share2 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { jsPDF } from 'jspdf';
@@ -9,17 +9,23 @@ import autoTable from 'jspdf-autotable';
 interface DashboardProps {
   customers: Customer[];
   transactions: Transaction[];
-  onSelectCustomer: (id: string) => void;
+  banks: Bank[];
+  onSelectCustomer: (id: string, metalFilter: 'ALL' | 'GOLD' | 'SILVER' | 'COPPER') => void;
   onAddCustomer: (customer: Customer) => void;
   onUpdateCustomer: (customer: Customer) => void;
   onDeleteCustomer: (id: string) => void;
+  projectName: string;
+  shopPhone: string;
+  metalFilter: 'ALL' | 'GOLD' | 'SILVER' | 'COPPER';
+  onMetalFilterChange: (filter: 'ALL' | 'GOLD' | 'SILVER' | 'COPPER') => void;
 }
 
 const DRAFT_CUSTOMER_KEY = 'haroon_draft_customer';
 const DESKTOP_SHARE_HINT_KEY = 'newjehlum_whatsapp_desktop_hint_seen';
 
-const Dashboard: React.FC<DashboardProps> = ({ customers, transactions, onSelectCustomer, onAddCustomer, onUpdateCustomer, onDeleteCustomer }) => {
+const Dashboard: React.FC<DashboardProps> = ({ customers, transactions, banks, onSelectCustomer, onAddCustomer, onUpdateCustomer, onDeleteCustomer, projectName, shopPhone, metalFilter, onMetalFilterChange: setMetalFilter }) => {
   const [searchTerm, setSearchTerm] = useState('');
+  const [sortMode, setSortMode] = useState<'CREATED' | 'BALANCE_FIRST'>('CREATED');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
@@ -43,9 +49,10 @@ const Dashboard: React.FC<DashboardProps> = ({ customers, transactions, onSelect
       let cashBalance = 0; 
       let goldBalance = 0; 
       let silverBalance = 0;
+      let copperBalance = 0;
 
       customerTx.forEach(t => {
-        const weight = (t.goldWeight || t.silverWeight || 0);
+        const weight = (t.goldWeight || t.silverWeight || t.copperWeight || 0);
         const rate = (t.rate || 0);
         const value = weight * rate;
         
@@ -61,6 +68,12 @@ const Dashboard: React.FC<DashboardProps> = ({ customers, transactions, onSelect
         } else if (t.type === TransactionType.SELL_SILVER) {
           silverBalance -= (t.silverWeight || 0); 
           cashBalance += value; 
+        } else if (t.type === TransactionType.BUY_COPPER) {
+          copperBalance += (t.copperWeight || 0);
+          cashBalance -= value;
+        } else if (t.type === TransactionType.SELL_COPPER) {
+          copperBalance -= (t.copperWeight || 0);
+          cashBalance += value;
         } else if (t.type === TransactionType.CASH_PAYMENT) {
           cashBalance -= (t.cashIn || 0); 
           cashBalance += (t.cashOut || 0); 
@@ -70,6 +83,9 @@ const Dashboard: React.FC<DashboardProps> = ({ customers, transactions, onSelect
         } else if (t.type === TransactionType.SILVER_SETTLEMENT) {
           silverBalance -= (t.silverIn || 0);
           silverBalance += (t.silverOut || 0);
+        } else if (t.type === TransactionType.COPPER_SETTLEMENT) {
+          copperBalance -= (t.copperIn || 0);
+          copperBalance += (t.copperOut || 0);
         }
       });
       
@@ -77,7 +93,8 @@ const Dashboard: React.FC<DashboardProps> = ({ customers, transactions, onSelect
         ...customer,
         cashBalance,
         goldBalance,
-        silverBalance
+        silverBalance,
+        copperBalance
       };
     });
   }, [customers, transactions]);
@@ -86,14 +103,54 @@ const Dashboard: React.FC<DashboardProps> = ({ customers, transactions, onSelect
     return customerStats.reduce((acc, c) => ({
       cash: acc.cash + c.cashBalance,
       gold: acc.gold + c.goldBalance,
-      silver: acc.silver + c.silverBalance
-    }), { cash: 0, gold: 0, silver: 0 });
+      silver: acc.silver + c.silverBalance,
+      copper: acc.copper + c.copperBalance
+    }), { cash: 0, gold: 0, silver: 0, copper: 0 });
   }, [customerStats]);
 
-  const filteredCustomers = customerStats.filter(c => 
-    c.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    (c.phone && c.phone.includes(searchTerm))
-  );
+  const bankCash = useMemo(() => {
+    return banks.reduce((sum, bank) => {
+      let balance = bank.initialBalance;
+      transactions.forEach(t => {
+        if (t.paymentMethod === PaymentMethod.BANK && t.bankId === bank.id) {
+          balance += (t.cashIn || 0);
+          balance -= (t.cashOut || 0);
+        }
+      });
+      return sum + balance;
+    }, 0);
+  }, [banks, transactions]);
+
+  const hasLedgerStatus = (c: typeof customerStats[number]) => {
+    return (
+      Math.round(Math.abs(c.cashBalance)) > 0 ||
+      Math.abs(c.goldBalance) > 0.001 ||
+      Math.abs(c.silverBalance) > 0.001 ||
+      Math.abs(c.copperBalance) > 0.001
+    );
+  };
+
+  const filteredCustomers = customerStats
+    .filter(c =>
+      c.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (c.phone && c.phone.includes(searchTerm))
+    )
+    .filter(c => {
+      if (searchTerm) return true;
+      if (!hasLedgerStatus(c)) return false;
+      if (metalFilter === 'GOLD') return Math.abs(c.goldBalance) > 0.001;
+      if (metalFilter === 'SILVER') return Math.abs(c.silverBalance) > 0.001;
+      if (metalFilter === 'COPPER') return Math.abs(c.copperBalance) > 0.001;
+      return true;
+    })
+    .sort((a, b) => {
+      if (sortMode === 'CREATED') return 0;
+      const aHasBalance = hasLedgerStatus(a);
+      const bHasBalance = hasLedgerStatus(b);
+      if (aHasBalance && !bHasBalance) return -1;
+      if (!aHasBalance && bHasBalance) return 1;
+      return 0;
+    });
 
   const handleAddClick = () => {
     setEditingCustomer(null);
@@ -142,21 +199,8 @@ const Dashboard: React.FC<DashboardProps> = ({ customers, transactions, onSelect
     return false;
   };
 
-  const handleShareWhatsApp = async (e: React.MouseEvent, c: typeof customerStats[0]) => {
-    e.stopPropagation();
-    const cashStatus = c.cashBalance >= 0 ? 'Laine (Receivable)' : 'Daine (Payable)';
-    const message = [
-      `*New Jehlum Gold Smith*`,
-      `📋 *Ledger Summary: ${c.name}*`,
-      ``,
-      `💰 Cash Balance: Rs. ${Math.round(Math.abs(c.cashBalance)).toLocaleString()} (${cashStatus})`,
-      `🥇 Gold Balance: ${Math.abs(c.goldBalance).toFixed(3)}g`,
-      `🥈 Silver Balance: ${Math.abs(c.silverBalance).toFixed(2)}g`,
-      ``,
-      `📅 Date: ${new Date().toLocaleDateString('en-PK')}`,
-    ].join('\n');
-
-    const normalizedPhone = normalizeWhatsAppNumber(c.phone);
+  const openWhatsAppShare = async (message: string, phone?: string) => {
+    const normalizedPhone = normalizeWhatsAppNumber(phone);
     const params = new URLSearchParams({ text: message });
     if (normalizedPhone) params.set('phone', normalizedPhone);
 
@@ -187,6 +231,50 @@ const Dashboard: React.FC<DashboardProps> = ({ customers, transactions, onSelect
     }
   };
 
+  const handleShareWhatsApp = async (e: React.MouseEvent, c: typeof customerStats[0]) => {
+    e.stopPropagation();
+    const getStatus = (value: number) => value >= 0 ? 'Laine (Receivable)' : 'Daine (Payable)';
+    const message = [
+      `*${projectName}*`,
+      `📋 *Ledger Summary: ${c.name}*`,
+      ``,
+      `💰 Cash Balance: Rs. ${Math.round(Math.abs(c.cashBalance)).toLocaleString()} (${getStatus(c.cashBalance)})`,
+      `🥇 Gold Balance: ${Math.abs(c.goldBalance).toFixed(3)}g (${getStatus(c.goldBalance)})`,
+      `🥈 Silver Balance: ${Math.abs(c.silverBalance).toFixed(2)}g (${getStatus(c.silverBalance)})`,
+      `🟤 Copper Balance: ${Math.abs(c.copperBalance).toFixed(2)}g (${getStatus(c.copperBalance)})`,
+      ``,
+      `📅 Date: ${new Date().toLocaleDateString('en-PK')}`,
+    ].join('\n');
+    await openWhatsAppShare(message, c.phone);
+  };
+
+  const handleShareAllWhatsApp = async () => {
+    const getStatus = (value: number) => value >= 0 ? 'Laine' : 'Daine';
+    const lines = customerStats.map((c, index) => (
+      `${index + 1}. ${c.name} | Cash: Rs. ${Math.round(Math.abs(c.cashBalance)).toLocaleString()} (${getStatus(c.cashBalance)}) | ` +
+      `Gold: ${Math.abs(c.goldBalance).toFixed(3)}g (${getStatus(c.goldBalance)}) | ` +
+      `Silver: ${Math.abs(c.silverBalance).toFixed(2)}g (${getStatus(c.silverBalance)}) | ` +
+      `Copper: ${Math.abs(c.copperBalance).toFixed(2)}g (${getStatus(c.copperBalance)})`
+    ));
+
+    const message = [
+      `*${projectName}*`,
+      `📋 *Ledger Summary: All Customers*`,
+      `👥 Profiles: ${customerStats.length}`,
+      ``,
+      `💰 Total Cash: Rs. ${Math.round(Math.abs(totals.cash)).toLocaleString()} (${getStatus(totals.cash)})`,
+      `🥇 Total Gold: ${Math.abs(totals.gold).toFixed(3)}g (${getStatus(totals.gold)})`,
+      `🥈 Total Silver: ${Math.abs(totals.silver).toFixed(2)}g (${getStatus(totals.silver)})`,
+      `🟤 Total Copper: ${Math.abs(totals.copper).toFixed(2)}g (${getStatus(totals.copper)})`,
+      ``,
+      ...lines,
+      ``,
+      `📅 Date: ${new Date().toLocaleDateString('en-PK')}`,
+    ].join('\n');
+
+    await openWhatsAppShare(message);
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (editingCustomer) {
@@ -211,14 +299,15 @@ const Dashboard: React.FC<DashboardProps> = ({ customers, transactions, onSelect
   };
 
   const exportToExcel = () => {
-    const data = customerStats.map(c => ({
+    const data = customerStats.filter(c => c.cashBalance !== 0 || c.goldBalance !== 0 || c.silverBalance !== 0 || c.copperBalance !== 0).map(c => ({
       'Name': c.name,
       'Phone': c.phone || 'N/A',
       'Address': c.address || 'N/A',
       'Cash Balance': c.cashBalance,
       'Status': c.cashBalance >= 0 ? 'LAINE' : 'DAINE',
       'Gold Bal (g)': c.goldBalance.toFixed(3),
-      'Silver Bal (g)': c.silverBalance.toFixed(2)
+      'Silver Bal (g)': c.silverBalance.toFixed(2),
+      'Copper Bal (g)': c.copperBalance.toFixed(2)
     }));
     data.push({
       'Name': 'TOTAL',
@@ -227,7 +316,18 @@ const Dashboard: React.FC<DashboardProps> = ({ customers, transactions, onSelect
       'Cash Balance': totals.cash,
       'Status': totals.cash >= 0 ? 'LAINE' : 'DAINE',
       'Gold Bal (g)': totals.gold.toFixed(3),
-      'Silver Bal (g)': totals.silver.toFixed(2)
+      'Silver Bal (g)': totals.silver.toFixed(2),
+      'Copper Bal (g)': totals.copper.toFixed(2)
+    });
+    data.push({
+      'Name': 'BANK CASH',
+      'Phone': '-',
+      'Address': '-',
+      'Cash Balance': bankCash,
+      'Status': '',
+      'Gold Bal (g)': '',
+      'Silver Bal (g)': '',
+      'Copper Bal (g)': ''
     });
     const ws = XLSX.utils.json_to_sheet(data);
     const wb = XLSX.utils.book_new();
@@ -239,25 +339,31 @@ const Dashboard: React.FC<DashboardProps> = ({ customers, transactions, onSelect
   const exportToPDF = () => {
     const doc = new jsPDF();
     doc.setFontSize(20);
-    doc.text('New Jehlum Gold Smith', 14, 15);
+    doc.text(projectName, 14, 15);
     doc.setFontSize(10);
-    doc.text('Customer Directory Statement', 14, 22);
+    doc.setTextColor(100, 116, 139);
+    doc.setFont('helvetica', 'normal');
+    doc.text(shopPhone ? `Ph: ${shopPhone} | Customer Summary` : 'Customer Summary', 14, 22);
+    doc.setFontSize(9);
+    doc.text(`Bank Cash: Rs. ${Math.round(bankCash).toLocaleString()}`, 14, 28);
     autoTable(doc, {
-      startY: 30,
-      head: [['Name', 'Phone', 'Cash Bal', 'Gold Bal', 'Silver Bal']],
-      body: customerStats.map(c => [
+      startY: 34,
+      head: [['Name', 'Phone', 'Cash Bal', 'Gold Bal', 'Silver Bal', 'Copper Bal']],
+      body: customerStats.filter(c => c.cashBalance !== 0 || c.goldBalance !== 0 || c.silverBalance !== 0 || c.copperBalance !== 0).map(c => [
         c.name,
         c.phone || 'N/A',
         Math.round(c.cashBalance).toLocaleString(),
         c.goldBalance.toFixed(3),
-        c.silverBalance.toFixed(2)
+        c.silverBalance.toFixed(2),
+        c.copperBalance.toFixed(2)
       ]),
       foot: [[
         'TOTAL',
         '-',
         Math.round(totals.cash).toLocaleString(),
         totals.gold.toFixed(3),
-        totals.silver.toFixed(2)
+        totals.silver.toFixed(2),
+        totals.copper.toFixed(2)
       ]],
       footStyles: {
         fontStyle: 'bold'
@@ -281,6 +387,20 @@ const Dashboard: React.FC<DashboardProps> = ({ customers, transactions, onSelect
               <span className={`text-[11px] ml-1 font-semibold ${totals.cash >= 0 ? 'text-blue-500' : 'text-rose-500'}`}>
                 {totals.cash >= 0 ? 'Laine' : 'Daine'}
               </span>
+            </p>
+          </div>
+        </div>
+
+        <div className="w-px h-8 bg-gray-100 dark:bg-slate-800 hidden sm:block"></div>
+
+        <div className="flex items-center space-x-3">
+          <div className="p-2.5 bg-indigo-50 dark:bg-slate-800 rounded-xl text-indigo-600 dark:text-indigo-400">
+            <Landmark size={20} />
+          </div>
+          <div>
+            <p className="text-xs font-semibold tracking-wide text-gray-500 dark:text-slate-400 leading-none mb-1">Bank Cash</p>
+            <p className="text-base font-bold text-gray-900 dark:text-slate-100 leading-none">
+              Rs. {Math.round(bankCash).toLocaleString()}
             </p>
           </div>
         </div>
@@ -312,6 +432,58 @@ const Dashboard: React.FC<DashboardProps> = ({ customers, transactions, onSelect
             </p>
           </div>
         </div>
+
+        <div className="w-px h-8 bg-gray-100 dark:bg-slate-800 hidden sm:block"></div>
+
+        <div className="flex items-center space-x-3">
+          <div className="p-2.5 bg-amber-50 dark:bg-slate-800 rounded-xl text-amber-700 dark:text-amber-500">
+            <Coins size={20} />
+          </div>
+          <div>
+            <p className="text-xs font-semibold tracking-wide text-gray-500 dark:text-slate-400 leading-none mb-1">Copper Ledger</p>
+            <p className="text-base font-bold text-gray-900 dark:text-slate-100 leading-none">
+              {Math.abs(totals.copper).toFixed(2)}g
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-2xl p-4">
+        <p className="text-xs font-semibold text-gray-500 dark:text-slate-400 mb-3 tracking-wide">Select Metal Type</p>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <button
+            type="button"
+            onClick={() => setMetalFilter('ALL')}
+            className={`p-3 rounded-xl border text-left transition-all ${metalFilter === 'ALL' ? 'border-indigo-400 bg-indigo-50 dark:bg-indigo-900/20' : 'border-gray-200 dark:border-slate-800 hover:border-indigo-200'}`}
+          >
+            <div className="text-sm font-semibold text-gray-900 dark:text-slate-100">All</div>
+            <div className="text-xs text-gray-500 dark:text-slate-400">View all profiles</div>
+          </button>
+          <button
+            type="button"
+            onClick={() => setMetalFilter('GOLD')}
+            className={`p-3 rounded-xl border text-left transition-all ${metalFilter === 'GOLD' ? 'border-yellow-400 bg-yellow-50 dark:bg-yellow-900/20' : 'border-gray-200 dark:border-slate-800 hover:border-yellow-200'}`}
+          >
+            <div className="text-sm font-semibold text-gray-900 dark:text-slate-100">Gold</div>
+            <div className="text-xs text-gray-500 dark:text-slate-400">Only gold profiles</div>
+          </button>
+          <button
+            type="button"
+            onClick={() => setMetalFilter('SILVER')}
+            className={`p-3 rounded-xl border text-left transition-all ${metalFilter === 'SILVER' ? 'border-slate-400 bg-slate-50 dark:bg-slate-800/50' : 'border-gray-200 dark:border-slate-800 hover:border-slate-300'}`}
+          >
+            <div className="text-sm font-semibold text-gray-900 dark:text-slate-100">Silver</div>
+            <div className="text-xs text-gray-500 dark:text-slate-400">Only silver profiles</div>
+          </button>
+          <button
+            type="button"
+            onClick={() => setMetalFilter('COPPER')}
+            className={`p-3 rounded-xl border text-left transition-all ${metalFilter === 'COPPER' ? 'border-amber-500 bg-amber-50 dark:bg-amber-900/20' : 'border-gray-200 dark:border-slate-800 hover:border-amber-300'}`}
+          >
+            <div className="text-sm font-semibold text-gray-900 dark:text-slate-100">Copper</div>
+            <div className="text-xs text-gray-500 dark:text-slate-400">Only copper profiles</div>
+          </button>
+        </div>
       </div>
 
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 pt-2">
@@ -330,6 +502,31 @@ const Dashboard: React.FC<DashboardProps> = ({ customers, transactions, onSelect
             />
           </div>
 
+          <div className="flex items-center p-1 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl shadow-sm">
+            <button
+              type="button"
+              onClick={() => setSortMode('CREATED')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                sortMode === 'CREATED'
+                  ? 'bg-indigo-600 text-white shadow'
+                  : 'text-gray-500 dark:text-slate-400 hover:bg-gray-50 dark:hover:bg-slate-800'
+              }`}
+            >
+              Created Order
+            </button>
+            <button
+              type="button"
+              onClick={() => setSortMode('BALANCE_FIRST')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                sortMode === 'BALANCE_FIRST'
+                  ? 'bg-indigo-600 text-white shadow'
+                  : 'text-gray-500 dark:text-slate-400 hover:bg-gray-50 dark:hover:bg-slate-800'
+              }`}
+            >
+              Laine/Daine First
+            </button>
+          </div>
+
           <div className="relative">
             <button 
               onClick={() => setIsExportMenuOpen(!isExportMenuOpen)}
@@ -345,6 +542,15 @@ const Dashboard: React.FC<DashboardProps> = ({ customers, transactions, onSelect
             )}
           </div>
 
+          <button
+            onClick={handleShareAllWhatsApp}
+            className="flex items-center space-x-2 bg-green-600 text-white px-3 py-2.5 rounded-xl hover:bg-green-700 transition-all shadow-md font-semibold text-sm"
+            title="Share all customer summaries"
+          >
+            <Share2 size={14} />
+            <span className="hidden sm:inline">Share All</span>
+          </button>
+
           <button 
             onClick={handleAddClick}
             className="flex items-center space-x-2 bg-indigo-600 text-white px-4 py-2.5 rounded-xl hover:bg-indigo-700 transition-all shadow-md font-semibold text-sm"
@@ -359,7 +565,7 @@ const Dashboard: React.FC<DashboardProps> = ({ customers, transactions, onSelect
         {filteredCustomers.map(c => (
           <div 
             key={c.id}
-            onClick={() => onSelectCustomer(c.id)}
+            onClick={() => onSelectCustomer(c.id, metalFilter)}
             className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-gray-200 dark:border-slate-800 p-6 hover:shadow-lg dark:hover:shadow-indigo-900/10 transition-all cursor-pointer relative overflow-hidden group hover:border-indigo-200 dark:hover:border-indigo-800 duration-300"
           >
             <div className="absolute -top-6 -right-6 p-4 opacity-[0.03] group-hover:opacity-[0.08] transition-opacity">
@@ -368,7 +574,9 @@ const Dashboard: React.FC<DashboardProps> = ({ customers, transactions, onSelect
             
             <div className="flex justify-between items-start mb-4 relative z-10">
               <div>
-                <h3 className="font-display text-xl font-semibold text-gray-900 dark:text-slate-100 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors tracking-tight">{c.name}</h3>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h3 className="font-display text-xl font-semibold text-gray-900 dark:text-slate-100 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors tracking-tight">{c.name}</h3>
+                </div>
                 <p className="text-xs font-medium text-gray-500 dark:text-slate-400 tracking-wide">{c.address || 'No Address'}</p>
               </div>
               <div className="flex items-center space-x-1.5">
@@ -407,7 +615,7 @@ const Dashboard: React.FC<DashboardProps> = ({ customers, transactions, onSelect
                 </span>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-3 gap-4">
                 <div>
                   <p className="text-[11px] font-semibold text-gray-500 dark:text-slate-400 tracking-wide">Gold Bal</p>
                   <p className={`text-sm font-semibold ${c.goldBalance >= 0 ? 'text-indigo-900 dark:text-slate-200' : 'text-rose-700 dark:text-rose-400'}`}>{Math.abs(c.goldBalance).toFixed(3)}g</p>
@@ -415,6 +623,10 @@ const Dashboard: React.FC<DashboardProps> = ({ customers, transactions, onSelect
                 <div>
                   <p className="text-[11px] font-semibold text-gray-500 dark:text-slate-400 tracking-wide">Silver Bal</p>
                   <p className={`text-sm font-semibold ${c.silverBalance >= 0 ? 'text-indigo-900 dark:text-slate-200' : 'text-rose-700 dark:text-rose-400'}`}>{Math.abs(c.silverBalance).toFixed(2)}g</p>
+                </div>
+                <div>
+                  <p className="text-[11px] font-semibold text-gray-500 dark:text-slate-400 tracking-wide">Copper Bal</p>
+                  <p className={`text-sm font-semibold ${c.copperBalance >= 0 ? 'text-amber-700 dark:text-amber-400' : 'text-rose-700 dark:text-rose-400'}`}>{Math.abs(c.copperBalance).toFixed(2)}g</p>
                 </div>
               </div>
 

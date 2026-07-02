@@ -18,7 +18,10 @@ import {
   ChevronRight,
   Database,
   Users,
-  CircleDot
+  CircleDot,
+  WifiOff,
+  Wifi,
+  ShieldCheck
 } from 'lucide-react';
 
 interface LayoutProps {
@@ -40,6 +43,16 @@ interface LayoutProps {
   onBackup?: () => void;
   onRestore?: () => void;
   useDatabase?: boolean;
+  onOpenBackupPanel?: () => void;
+  lastBackupAt?: string | null;
+}
+
+function getBackupDotColor(lastBackupAt?: string | null): 'green' | 'yellow' | 'red' {
+  if (!lastBackupAt) return 'red';
+  const hoursAgo = (Date.now() - new Date(lastBackupAt).getTime()) / 3_600_000;
+  if (hoursAgo <= 25) return 'green';
+  if (hoursAgo <= 48) return 'yellow';
+  return 'red';
 }
 
 export const Layout: React.FC<LayoutProps> = ({ 
@@ -60,7 +73,9 @@ export const Layout: React.FC<LayoutProps> = ({
   onLogout,
   onBackup,
   onRestore,
-  useDatabase
+  useDatabase,
+  onOpenBackupPanel,
+  lastBackupAt,
 }) => {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
     const saved = localStorage.getItem('haroon_sidebar_collapsed');
@@ -69,6 +84,38 @@ export const Layout: React.FC<LayoutProps> = ({
 
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [presenceUsers, setPresenceUsers] = useState<PresenceUser[]>([]);
+  const [isOnline, setIsOnline] = useState(true);
+  const [showBackOnline, setShowBackOnline] = useState(false);
+
+  useEffect(() => {
+    let wasOnline = true;
+
+    const checkConnectivity = async () => {
+      try {
+        const res = await fetch('/api/ping', { method: 'GET', cache: 'no-store' });
+        const online = res.ok;
+        if (online && !wasOnline) {
+          setIsOnline(true);
+          setShowBackOnline(true);
+          setTimeout(() => setShowBackOnline(false), 4000);
+        } else if (!online && wasOnline) {
+          setIsOnline(false);
+          setShowBackOnline(false);
+        }
+        wasOnline = online;
+      } catch {
+        if (wasOnline) {
+          setIsOnline(false);
+          setShowBackOnline(false);
+        }
+        wasOnline = false;
+      }
+    };
+
+    checkConnectivity();
+    const interval = window.setInterval(checkConnectivity, 8000);
+    return () => window.clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -140,6 +187,22 @@ export const Layout: React.FC<LayoutProps> = ({
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-slate-950 flex transition-colors duration-300 font-sans text-slate-700 dark:text-slate-200">
+
+      {/* Offline Banner */}
+      {!isOnline && (
+        <div className="fixed top-0 left-0 right-0 z-[100] bg-rose-600 text-white px-4 py-3 flex items-center justify-center gap-3 shadow-lg animate-in slide-in-from-top duration-300">
+          <WifiOff size={18} className="shrink-0" />
+          <span className="text-sm font-bold tracking-wide">No Internet Connection — Changes may not be saved. Please reconnect.</span>
+        </div>
+      )}
+
+      {/* Back Online Toast */}
+      {showBackOnline && (
+        <div className="fixed top-0 left-0 right-0 z-[100] bg-emerald-600 text-white px-4 py-3 flex items-center justify-center gap-3 shadow-lg animate-in slide-in-from-top duration-300">
+          <Wifi size={18} className="shrink-0" />
+          <span className="text-sm font-bold tracking-wide">Connection Restored — You are back online.</span>
+        </div>
+      )}
       {/* Sidebar - Desktop */}
       <aside 
         className={`hidden md:flex flex-col bg-white dark:bg-slate-900 border-r border-gray-200 dark:border-slate-800 transition-all duration-300 ease-in-out fixed h-screen z-50 ${
@@ -167,6 +230,27 @@ export const Layout: React.FC<LayoutProps> = ({
           {navItems.map(item => (
             <SidebarItem key={item.id} item={item} />
           ))}
+
+          {/* Data Backup Button */}
+          {onOpenBackupPanel && (() => {
+            const dotColor = getBackupDotColor(lastBackupAt);
+            const dotClass = dotColor === 'green' ? 'bg-emerald-500' : dotColor === 'yellow' ? 'bg-amber-400' : 'bg-rose-500';
+            return (
+              <button
+                onClick={() => { onOpenBackupPanel(); setIsMobileMenuOpen(false); }}
+                className="w-full flex items-center transition-all duration-200 group px-3 py-3 rounded-xl mb-1 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-indigo-600 dark:hover:text-indigo-400"
+                title="Data Backup Status"
+              >
+                <div className="relative shrink-0">
+                  <ShieldCheck size={20} className="group-hover:scale-110 transition-transform" />
+                  <span className={`absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full border border-white dark:border-slate-900 ${dotClass}`} />
+                </div>
+                <span className={`ml-4 text-[13px] font-semibold tracking-wide overflow-hidden whitespace-nowrap transition-all duration-300 ${isSidebarCollapsed ? 'w-0 opacity-0' : 'w-auto opacity-100'}`}>
+                  Data Backup
+                </span>
+              </button>
+            );
+          })()}
         </nav>
         <div className="p-4 mt-auto border-t border-gray-100 dark:border-slate-800">
           <div className={`mb-4 ${isSidebarCollapsed ? 'px-0' : 'px-2'}`}>
@@ -257,6 +341,15 @@ export const Layout: React.FC<LayoutProps> = ({
                 <span>{item.label}</span>
               </button>
             ))}
+            {onOpenBackupPanel && (
+              <button
+                onClick={() => { onOpenBackupPanel(); setIsMobileMenuOpen(false); }}
+                className="flex items-center space-x-4 p-5 rounded-2xl text-lg font-black uppercase tracking-widest transition-all text-slate-400"
+              >
+                <ShieldCheck size={24} />
+                <span>Data Backup</span>
+              </button>
+            )}
             <div className="pt-8 mt-auto border-t border-slate-800 flex justify-between">
               <button onClick={onToggleDarkMode} className="flex items-center space-x-3 text-slate-400">
                 {isDarkMode ? <Sun size={20} /> : <Moon size={20} />}
@@ -282,8 +375,10 @@ export const Layout: React.FC<LayoutProps> = ({
           <div className="flex-grow">
             <h1 className="font-display text-2xl font-bold text-slate-800 dark:text-white tracking-tight">{title}</h1>
             <div className="flex items-center space-x-2 mt-0.5">
-               <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-              <span className="text-[11px] font-semibold text-emerald-600/90 dark:text-emerald-400/90 tracking-wide">System Online</span>
+               <div className={`w-2 h-2 rounded-full ${isOnline ? 'bg-green-500 animate-pulse' : 'bg-rose-500'}`}></div>
+              <span className={`text-[11px] font-semibold tracking-wide ${isOnline ? 'text-emerald-600/90 dark:text-emerald-400/90' : 'text-rose-600 dark:text-rose-400'}`}>
+                {isOnline ? 'System Online' : 'No Internet'}
+              </span>
             </div>
           </div>
 

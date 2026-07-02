@@ -3,10 +3,14 @@ export enum TransactionType {
   SELL_GOLD = 'SELL_GOLD',
   BUY_SILVER = 'BUY_SILVER',
   SELL_SILVER = 'SELL_SILVER',
+  BUY_COPPER = 'BUY_COPPER',
+  SELL_COPPER = 'SELL_COPPER',
   CASH_PAYMENT = 'CASH_PAYMENT',
   GOLD_SETTLEMENT = 'GOLD_SETTLEMENT',
   SILVER_SETTLEMENT = 'SILVER_SETTLEMENT',
-  BANK_ADJUSTMENT = 'BANK_ADJUSTMENT' // Internal bank adjustments
+  COPPER_SETTLEMENT = 'COPPER_SETTLEMENT',
+  BANK_ADJUSTMENT = 'BANK_ADJUSTMENT', // Internal bank adjustments
+  LEDGER_TRANSFER = 'LEDGER_TRANSFER' // UI-only: generates a linked pair of CASH_PAYMENT entries between two customer ledgers
 }
 
 export enum PaymentMethod {
@@ -31,8 +35,9 @@ export interface Transaction {
   customerId?: string; // Optional for bank-only transactions
   date: string;
   type: TransactionType;
-  goldWeight?: number; 
+  goldWeight?: number;
   silverWeight?: number;
+  copperWeight?: number;
   rate?: number; 
   totalAmount?: number;
   cashIn?: number;
@@ -41,6 +46,8 @@ export interface Transaction {
   goldOut?: number;
   silverIn?: number;
   silverOut?: number;
+  copperIn?: number;
+  copperOut?: number;
   remarks: string;
   rateMode?: 'GRAM' | 'TOLA';
   // Metal settlement details
@@ -52,6 +59,11 @@ export interface Transaction {
   bankId?: string;
   transferType?: TransferType;
   referenceNo?: string;
+  // Attached file/image
+  attachmentId?: string;
+  attachmentName?: string;
+  // Timestamp of when the entry was created (used to display an entry "Time" alongside its Date)
+  createdAt?: string;
 }
 
 export interface Customer {
@@ -73,6 +85,7 @@ export interface AuthUser {
   displayName: string;
   projectName: string;
   role: string;
+  phone?: string;
 }
 
 export interface AdminUser {
@@ -94,4 +107,19 @@ export interface PresenceUser {
   is_active: boolean;
   last_seen: string | null;
   is_online: boolean;
+}
+
+export interface BackupEntry {
+  id: string;
+  createdAt: string;
+  createdBy: string | null;
+  note: string | null;
+  size: number;
+}
+
+export interface RestoreResult {
+  success: boolean;
+  backupId: string;
+  safetyBackupId: string;
+  data: AppState;
 }

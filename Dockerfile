@@ -20,7 +20,7 @@ WORKDIR /app
 # Copy production node_modules from builder (no second npm install)
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
-COPY package.json server.cjs ./
+COPY package.json server.cjs backup-manager.cjs ./
 
 EXPOSE 3001
 

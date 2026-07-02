@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Transaction, TransactionType, Customer } from '../types';
 import { format, parseISO, startOfDay, endOfDay, isWithinInterval } from 'date-fns';
 import { Calendar, Scale, Coins, TrendingUp, TrendingDown, Download, FileText, User, ArrowRight, Wallet, PieChart, Info, BarChart3 } from 'lucide-react';
@@ -7,6 +7,19 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
 const TOLA_WEIGHT = 11.664;
+const ROW_HIGHLIGHT_STORAGE_KEY = 'dailyTradeRowHighlights';
+type HighlightColor = 'red' | 'yellow' | 'green';
+const HIGHLIGHT_COLORS: HighlightColor[] = ['red', 'yellow', 'green'];
+const HIGHLIGHT_ROW_CLASSES: Record<HighlightColor, string> = {
+  red: 'bg-red-100/70 dark:bg-red-950/40 hover:bg-red-100 dark:hover:bg-red-950/60',
+  yellow: 'bg-yellow-100/70 dark:bg-yellow-950/40 hover:bg-yellow-100 dark:hover:bg-yellow-950/60',
+  green: 'bg-green-100/70 dark:bg-green-950/40 hover:bg-green-100 dark:hover:bg-green-950/60'
+};
+const HIGHLIGHT_DOT_CLASSES: Record<HighlightColor, string> = {
+  red: 'bg-red-500 border-red-600',
+  yellow: 'bg-yellow-400 border-yellow-500',
+  green: 'bg-green-500 border-green-600'
+};
 
 const getDisplayRate = (t: Transaction) => {
   const mode = t.rateMode || 'TOLA';
@@ -16,15 +29,45 @@ const getDisplayRate = (t: Transaction) => {
 interface DailyTradeReportProps {
   transactions: Transaction[];
   customers: Customer[];
+  projectName: string;
+  shopPhone: string;
 }
 
-const DailyTradeReport: React.FC<DailyTradeReportProps> = ({ transactions, customers }) => {
+const DailyTradeReport: React.FC<DailyTradeReportProps> = ({ transactions, customers, projectName, shopPhone }) => {
   const [dateRange, setDateRange] = useState({
     start: format(new Date(), 'yyyy-MM-dd'),
     end: format(new Date(), 'yyyy-MM-dd')
   });
-  const [metalType, setMetalType] = useState<'GOLD' | 'SILVER'>('GOLD');
+  const [metalType, setMetalType] = useState<'GOLD' | 'SILVER' | 'COPPER'>('GOLD');
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>('ALL');
+  const [rowHighlights, setRowHighlights] = useState<Record<string, HighlightColor>>(() => {
+    try {
+      const raw = localStorage.getItem(ROW_HIGHLIGHT_STORAGE_KEY);
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(ROW_HIGHLIGHT_STORAGE_KEY, JSON.stringify(rowHighlights));
+    } catch {
+      // ignore storage errors (e.g. private browsing quota)
+    }
+  }, [rowHighlights]);
+
+  const toggleRowHighlight = (id: string, color: HighlightColor) => {
+    setRowHighlights(prev => {
+      const next = { ...prev };
+      if (next[id] === color) {
+        delete next[id];
+      } else {
+        next[id] = color;
+      }
+      return next;
+    });
+  };
 
   const getCustomerName = (id?: string) => customers.find(c => c.id === id)?.name || '-';
 
@@ -32,16 +75,16 @@ const DailyTradeReport: React.FC<DailyTradeReportProps> = ({ transactions, custo
     const start = startOfDay(parseISO(dateRange.start));
     const end = endOfDay(parseISO(dateRange.end));
     
-    // Filter transactions by date and customer once
+    // Filter transactions by date and customer once, sorted chronologically
     const baseFiltered = transactions.filter(t => {
       const txDate = parseISO(t.date);
       const matchesDate = isWithinInterval(txDate, { start, end });
       const matchesCustomer = selectedCustomerId === 'ALL' || t.customerId === selectedCustomerId;
       return matchesDate && matchesCustomer;
-    });
+    }).sort((a, b) => parseISO(a.date).getTime() - parseISO(b.date).getTime());
 
-    const mapTrade = (t: Transaction, type: 'GOLD' | 'SILVER') => {
-      const weight = type === 'GOLD' ? (t.goldWeight || 0) : (t.silverWeight || 0);
+    const mapTrade = (t: Transaction, type: 'GOLD' | 'SILVER' | 'COPPER') => {
+      const weight = type === 'GOLD' ? (t.goldWeight || 0) : type === 'SILVER' ? (t.silverWeight || 0) : (t.copperWeight || 0);
       const ratePerGram = t.rate || 0;
       const amount = weight * ratePerGram;
       return { 
@@ -71,25 +114,36 @@ const DailyTradeReport: React.FC<DailyTradeReportProps> = ({ transactions, custo
     const silverBuyAmt = silverBuys.reduce((sum, b) => sum + b.amount, 0);
     const silverProfit = silverSellAmt - silverBuyAmt;
 
+    // Calculate Copper Stats
+    const copperTxs = baseFiltered.filter(t => [TransactionType.BUY_COPPER, TransactionType.SELL_COPPER].includes(t.type));
+    const copperSells = copperTxs.filter(t => t.type === TransactionType.SELL_COPPER).map(t => mapTrade(t, 'COPPER'));
+    const copperBuys = copperTxs.filter(t => t.type === TransactionType.BUY_COPPER).map(t => mapTrade(t, 'COPPER'));
+
+    const copperSellAmt = copperSells.reduce((sum, s) => sum + s.amount, 0);
+    const copperBuyAmt = copperBuys.reduce((sum, b) => sum + b.amount, 0);
+    const copperProfit = copperSellAmt - copperBuyAmt;
+
     // Data for the current active view (tables)
     const activeIsGold = metalType === 'GOLD';
-    const activeSells = activeIsGold ? goldSells : silverSells;
-    const activeBuys = activeIsGold ? goldBuys : silverBuys;
+    const activeIsCopper = metalType === 'COPPER';
+    const activeSells = activeIsGold ? goldSells : activeIsCopper ? copperSells : silverSells;
+    const activeBuys = activeIsGold ? goldBuys : activeIsCopper ? copperBuys : silverBuys;
 
     return {
       activeSells,
       activeBuys,
       activeTotals: {
-        sellAmount: activeIsGold ? goldSellAmt : silverSellAmt,
-        buyAmount: activeIsGold ? goldBuyAmt : silverBuyAmt,
+        sellAmount: activeIsGold ? goldSellAmt : activeIsCopper ? copperSellAmt : silverSellAmt,
+        buyAmount: activeIsGold ? goldBuyAmt : activeIsCopper ? copperBuyAmt : silverBuyAmt,
         sellWeight: activeSells.reduce((sum, s) => sum + s.weight, 0),
         buyWeight: activeBuys.reduce((sum, b) => sum + b.weight, 0),
-        profit: activeIsGold ? goldProfit : silverProfit
+        profit: activeIsGold ? goldProfit : activeIsCopper ? copperProfit : silverProfit
       },
       summary: {
         gold: { sell: goldSellAmt, buy: goldBuyAmt, profit: goldProfit },
         silver: { sell: silverSellAmt, buy: silverBuyAmt, profit: silverProfit },
-        grandTotal: goldProfit + silverProfit
+        copper: { sell: copperSellAmt, buy: copperBuyAmt, profit: copperProfit },
+        grandTotal: goldProfit + silverProfit + copperProfit
       }
     };
   }, [transactions, dateRange, metalType, selectedCustomerId]);
@@ -115,12 +169,12 @@ const DailyTradeReport: React.FC<DailyTradeReportProps> = ({ transactions, custo
     doc.setFontSize(22);
     doc.setTextColor(30, 41, 59);
     doc.setFont('helvetica', 'bold');
-    doc.text('New Jehlum  Gold Smith', 14, 20);
+    doc.text(projectName, 14, 20);
     
     doc.setFontSize(10);
     doc.setTextColor(100, 116, 139);
     doc.setFont('helvetica', 'normal');
-    doc.text('Ph: +92 321 6090043 | Daily Trade Analysis', 14, 27);
+    doc.text(shopPhone ? `Ph: ${shopPhone} | Daily Trade Analysis` : 'Daily Trade Analysis', 14, 27);
     
     doc.setDrawColor(226, 232, 240);
     doc.line(14, 32, 196, 32);
@@ -178,9 +232,10 @@ const DailyTradeReport: React.FC<DailyTradeReportProps> = ({ transactions, custo
     doc.setFont('helvetica', 'normal');
     doc.text(`Gold Profit/Loss: Rs. ${Math.round(dailyData.summary.gold.profit).toLocaleString()}`, 14, finalY + 8);
     doc.text(`Silver Profit/Loss: Rs. ${Math.round(dailyData.summary.silver.profit).toLocaleString()}`, 14, finalY + 16);
-    doc.text(`Net Grand Total: Rs. ${Math.abs(Math.round(dailyData.summary.grandTotal)).toLocaleString()}`, 14, finalY + 24);
+    doc.text(`Copper Profit/Loss: Rs. ${Math.round(dailyData.summary.copper.profit).toLocaleString()}`, 14, finalY + 24);
+    doc.text(`Net Grand Total: Rs. ${Math.abs(Math.round(dailyData.summary.grandTotal)).toLocaleString()}`, 14, finalY + 32);
     doc.setFont('helvetica', 'bold');
-    doc.text(`(${dailyData.summary.grandTotal >= 0 ? 'TOTAL PROFIT' : 'TOTAL LOSS'})`, 140, finalY + 24);
+    doc.text(`(${dailyData.summary.grandTotal >= 0 ? 'TOTAL PROFIT' : 'TOTAL LOSS'})`, 140, finalY + 32);
 
     doc.save(`Daily_Trade_Sheet_${dateRange.start}.pdf`);
   };
@@ -225,6 +280,7 @@ const DailyTradeReport: React.FC<DailyTradeReportProps> = ({ transactions, custo
           <div className="flex bg-gray-100 dark:bg-slate-800 p-1.5 rounded-2xl border border-gray-200 dark:border-slate-700 shadow-inner">
             <button onClick={() => setMetalType('GOLD')} className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all ${metalType === 'GOLD' ? 'bg-yellow-500 text-white shadow-md' : 'text-gray-500 dark:text-slate-400'}`}><Scale size={12} /><span>Gold</span></button>
             <button onClick={() => setMetalType('SILVER')} className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all ${metalType === 'SILVER' ? 'bg-slate-500 text-white shadow-md' : 'text-gray-500 dark:text-slate-400'}`}><Coins size={12} /><span>Silver</span></button>
+            <button onClick={() => setMetalType('COPPER')} className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all ${metalType === 'COPPER' ? 'bg-amber-700 text-white shadow-md' : 'text-gray-500 dark:text-slate-400'}`}><Coins size={12} /><span>Copper</span></button>
           </div>
 
           <div className="flex items-center bg-gray-100 dark:bg-slate-800 p-1.5 rounded-2xl border border-gray-200 dark:border-slate-700">
@@ -286,13 +342,26 @@ const DailyTradeReport: React.FC<DailyTradeReportProps> = ({ transactions, custo
           <div className="flex-grow overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-100">
               <thead className="bg-rose-50 dark:bg-rose-950/20 text-[11px] font-semibold text-rose-700 dark:text-rose-300 tracking-wide">
-                <tr><th className="px-4 py-2 text-left">Date</th><th className="px-4 py-2 text-left">Customer</th><th className="px-4 py-2 text-right">Qty (g)</th><th className="px-4 py-2 text-right">Rate</th><th className="px-4 py-2 text-right">Amount</th></tr>
+                <tr><th className="px-3 py-2 text-left">Mark</th><th className="px-4 py-2 text-left">Date</th><th className="px-4 py-2 text-left">Customer</th><th className="px-4 py-2 text-right">Qty (g)</th><th className="px-4 py-2 text-right">Rate</th><th className="px-4 py-2 text-right">Amount</th></tr>
               </thead>
               <tbody className="bg-white dark:bg-slate-900 divide-y divide-gray-50 dark:divide-slate-800 text-xs">
                 {dailyData.activeSells.length === 0 ? (
-                  <tr><td colSpan={5} className="px-4 py-8 text-center text-gray-400 dark:text-slate-500 font-medium tracking-wide opacity-70 italic">No sales found</td></tr>
+                  <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-400 dark:text-slate-500 font-medium tracking-wide opacity-70 italic">No sales found</td></tr>
                 ) : dailyData.activeSells.map(s => (
-                  <tr key={s.id} className="hover:bg-rose-50/20 transition-colors">
+                  <tr key={s.id} className={`transition-colors ${rowHighlights[s.id] ? HIGHLIGHT_ROW_CLASSES[rowHighlights[s.id]] : 'hover:bg-rose-50/20'}`}>
+                    <td className="px-3 py-2.5">
+                      <div className="flex items-center gap-1">
+                        {HIGHLIGHT_COLORS.map(color => (
+                          <button
+                            key={color}
+                            type="button"
+                            onClick={() => toggleRowHighlight(s.id, color)}
+                            title={`Mark row ${color}`}
+                            className={`w-3 h-3 rounded-full border ${HIGHLIGHT_DOT_CLASSES[color]} ${rowHighlights[s.id] === color ? 'scale-110 ring-2 ring-offset-1 ring-gray-400 dark:ring-slate-500' : 'opacity-40 hover:opacity-80'}`}
+                          />
+                        ))}
+                      </div>
+                    </td>
                     <td className="px-4 py-2.5 text-gray-500 dark:text-slate-400 font-medium">{format(parseISO(s.date), 'dd/MM')}</td>
                     <td className="px-4 py-2.5 font-semibold text-gray-700 dark:text-slate-200 truncate max-w-[110px]">{getCustomerName(s.customerId)}</td>
                     <td className="px-4 py-2.5 text-right font-medium text-gray-600 dark:text-slate-300">{s.weight.toFixed(3)}</td>
@@ -304,6 +373,7 @@ const DailyTradeReport: React.FC<DailyTradeReportProps> = ({ transactions, custo
               {dailyData.activeSells.length > 0 && (
                 <tfoot className="bg-rose-50/50 dark:bg-rose-950/20 border-t border-rose-100 dark:border-rose-900/40">
                   <tr className="font-semibold text-rose-900 dark:text-rose-200 text-xs">
+                    <td className="px-3 py-3"></td>
                     <td colSpan={2} className="px-4 py-3 tracking-wide">Total Sales</td>
                     <td className="px-4 py-3 text-right">{dailyData.activeTotals.sellWeight.toFixed(3)}g</td>
                     <td></td>
@@ -324,13 +394,26 @@ const DailyTradeReport: React.FC<DailyTradeReportProps> = ({ transactions, custo
           <div className="flex-grow overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-100">
               <thead className="bg-emerald-50 dark:bg-emerald-950/20 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300 tracking-wide">
-                <tr><th className="px-4 py-2 text-left">Date</th><th className="px-4 py-2 text-left">Customer</th><th className="px-4 py-2 text-right">Qty (g)</th><th className="px-4 py-2 text-right">Rate</th><th className="px-4 py-2 text-right">Amount</th></tr>
+                <tr><th className="px-3 py-2 text-left">Mark</th><th className="px-4 py-2 text-left">Date</th><th className="px-4 py-2 text-left">Customer</th><th className="px-4 py-2 text-right">Qty (g)</th><th className="px-4 py-2 text-right">Rate</th><th className="px-4 py-2 text-right">Amount</th></tr>
               </thead>
               <tbody className="bg-white dark:bg-slate-900 divide-y divide-gray-50 dark:divide-slate-800 text-xs">
                 {dailyData.activeBuys.length === 0 ? (
-                  <tr><td colSpan={5} className="px-4 py-8 text-center text-gray-400 dark:text-slate-500 font-medium tracking-wide opacity-70 italic">No purchases found</td></tr>
+                  <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-400 dark:text-slate-500 font-medium tracking-wide opacity-70 italic">No purchases found</td></tr>
                 ) : dailyData.activeBuys.map(b => (
-                  <tr key={b.id} className="hover:bg-emerald-50/20 transition-colors">
+                  <tr key={b.id} className={`transition-colors ${rowHighlights[b.id] ? HIGHLIGHT_ROW_CLASSES[rowHighlights[b.id]] : 'hover:bg-emerald-50/20'}`}>
+                    <td className="px-3 py-2.5">
+                      <div className="flex items-center gap-1">
+                        {HIGHLIGHT_COLORS.map(color => (
+                          <button
+                            key={color}
+                            type="button"
+                            onClick={() => toggleRowHighlight(b.id, color)}
+                            title={`Mark row ${color}`}
+                            className={`w-3 h-3 rounded-full border ${HIGHLIGHT_DOT_CLASSES[color]} ${rowHighlights[b.id] === color ? 'scale-110 ring-2 ring-offset-1 ring-gray-400 dark:ring-slate-500' : 'opacity-40 hover:opacity-80'}`}
+                          />
+                        ))}
+                      </div>
+                    </td>
                     <td className="px-4 py-2.5 text-gray-500 dark:text-slate-400 font-medium">{format(parseISO(b.date), 'dd/MM')}</td>
                     <td className="px-4 py-2.5 font-semibold text-gray-700 dark:text-slate-200 truncate max-w-[110px]">{getCustomerName(b.customerId)}</td>
                     <td className="px-4 py-2.5 text-right font-medium text-gray-600 dark:text-slate-300">{b.weight.toFixed(3)}</td>
@@ -342,6 +425,7 @@ const DailyTradeReport: React.FC<DailyTradeReportProps> = ({ transactions, custo
               {dailyData.activeBuys.length > 0 && (
                 <tfoot className="bg-emerald-50/50 dark:bg-emerald-950/20 border-t border-emerald-100 dark:border-emerald-900/40">
                   <tr className="font-semibold text-emerald-900 dark:text-emerald-200 text-xs">
+                    <td className="px-3 py-3"></td>
                     <td colSpan={2} className="px-4 py-3 tracking-wide">Total Purchases</td>
                     <td className="px-4 py-3 text-right">{dailyData.activeTotals.buyWeight.toFixed(3)}g</td>
                     <td></td>
@@ -370,7 +454,7 @@ const DailyTradeReport: React.FC<DailyTradeReportProps> = ({ transactions, custo
                </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-8">
                {/* Gold Profit/Loss Box */}
                <div className="bg-white/5 rounded-3xl p-6 border border-white/10 hover:border-yellow-500/50 transition-all group/box">
                   <div className="flex items-center justify-between mb-4">
@@ -425,6 +509,36 @@ const DailyTradeReport: React.FC<DailyTradeReportProps> = ({ transactions, custo
                            </p>
                         <span className={`text-[11px] font-semibold px-2 py-1 rounded ${dailyData.summary.silver.profit >= 0 ? 'bg-green-400/10 text-green-400' : 'bg-rose-400/10 text-rose-400'}`}>
                               {dailyData.summary.silver.profit >= 0 ? 'Profit' : 'Loss'}
+                           </span>
+                        </div>
+                     </div>
+                  </div>
+               </div>
+
+               {/* Copper Profit/Loss Box */}
+               <div className="bg-white/5 rounded-3xl p-6 border border-white/10 hover:border-amber-400/50 transition-all group/box">
+                  <div className="flex items-center justify-between mb-4">
+                    <p className="text-xs font-semibold tracking-wide text-amber-400">Copper Performance</p>
+                     <Coins size={16} className="text-amber-400/50" />
+                  </div>
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-xs font-medium text-gray-400">
+                        <span>Sales</span>
+                        <span>Rs. {Math.round(dailyData.summary.copper.sell).toLocaleString()}</span>
+                     </div>
+                    <div className="flex justify-between text-xs font-medium text-gray-400">
+                        <span>Purchases</span>
+                        <span>Rs. {Math.round(dailyData.summary.copper.buy).toLocaleString()}</span>
+                     </div>
+                     <div className="h-px bg-white/10 my-3"></div>
+                     <div className="flex justify-between items-end">
+                      <span className="text-xs font-semibold text-gray-400 tracking-wide">Net Result</span>
+                        <div className="text-right">
+                        <p className={`text-2xl font-bold ${dailyData.summary.copper.profit >= 0 ? 'text-green-400' : 'text-rose-400'}`}>
+                              {dailyData.summary.copper.profit >= 0 ? '+' : '-'} Rs. {Math.abs(Math.round(dailyData.summary.copper.profit)).toLocaleString()}
+                           </p>
+                        <span className={`text-[11px] font-semibold px-2 py-1 rounded ${dailyData.summary.copper.profit >= 0 ? 'bg-green-400/10 text-green-400' : 'bg-rose-400/10 text-rose-400'}`}>
+                              {dailyData.summary.copper.profit >= 0 ? 'Profit' : 'Loss'}
                            </span>
                         </div>
                      </div>

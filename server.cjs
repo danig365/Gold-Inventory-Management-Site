@@ -4,6 +4,7 @@ const { Pool } = require('pg');
 const multer = require('multer');
 const fs = require('fs');
 const crypto = require('crypto');
+const backupManager = require('./backup-manager.cjs');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -15,6 +16,23 @@ const lastPresenceTouch = new Map();
 
 // Middleware
 app.use(express.json({ limit: '50mb' }));
+
+// Ensure backup dir exists at startup
+try {
+  backupManager.ensureBaseDir();
+} catch (err) {
+  console.error('Failed to ensure backup dir:', err?.message || err);
+}
+
+const BACKUP_MAX_COUNT = Number(process.env.BACKUP_RETENTION_COUNT || 48); // 48 backups (2 days)
+
+// Ensure attachments dir exists at startup
+const ATTACHMENTS_DIR = process.env.ATTACHMENTS_DIR || path.join(__dirname, 'attachments');
+try {
+  fs.mkdirSync(ATTACHMENTS_DIR, { recursive: true });
+} catch (err) {
+  console.error('Failed to ensure attachments dir:', err?.message || err);
+}
 
 // --- Database Setup ---
 const pool = new Pool({
@@ -90,12 +108,13 @@ function mapUser(row) {
     displayName: row.display_name,
     projectName: row.project_name,
     role: row.role,
+    phone: row.phone || '',
   };
 }
 
 async function findUserById(id) {
   const res = await pool.query(
-    `SELECT id, username, password_hash, display_name, project_name, role
+    `SELECT id, username, password_hash, display_name, project_name, role, phone
      FROM users WHERE id = $1 AND is_active = TRUE`,
     [id]
   );
@@ -200,6 +219,8 @@ async function initializeDatabase() {
         "goldOut" DOUBLE PRECISION,
         "silverIn" DOUBLE PRECISION,
         "silverOut" DOUBLE PRECISION,
+        "copperIn" DOUBLE PRECISION,
+        "copperOut" DOUBLE PRECISION,
         remarks TEXT,
         "impureWeight" DOUBLE PRECISION,
         point DOUBLE PRECISION,
@@ -216,6 +237,12 @@ async function initializeDatabase() {
     await client.query('ALTER TABLE banks ADD COLUMN IF NOT EXISTS "userId" TEXT REFERENCES users(id) ON DELETE CASCADE');
     await client.query('ALTER TABLE transactions ADD COLUMN IF NOT EXISTS "userId" TEXT REFERENCES users(id) ON DELETE CASCADE');
     await client.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen TIMESTAMP');
+    await client.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS phone TEXT');
+    await client.query('ALTER TABLE transactions ADD COLUMN IF NOT EXISTS "copperIn" DOUBLE PRECISION');
+    await client.query('ALTER TABLE transactions ADD COLUMN IF NOT EXISTS "copperOut" DOUBLE PRECISION');
+    await client.query('ALTER TABLE transactions ADD COLUMN IF NOT EXISTS "dueDate" TEXT');
+    await client.query('ALTER TABLE transactions ADD COLUMN IF NOT EXISTS "attachmentId" TEXT');
+    await client.query('ALTER TABLE transactions ADD COLUMN IF NOT EXISTS "attachmentName" TEXT');
 
     await client.query('CREATE INDEX IF NOT EXISTS idx_transactions_customerid ON transactions("customerId")');
     await client.query('CREATE INDEX IF NOT EXISTS idx_transactions_bankid ON transactions("bankId")');
@@ -237,7 +264,8 @@ async function initializeDatabase() {
     if (existingDefault.rows.length === 0) {
       await client.query(
         `INSERT INTO users (id, username, password_hash, display_name, project_name, role, last_seen)
-         VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)`,
+         VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)
+         ON CONFLICT (id) DO NOTHING`,
         [
           defaultUser.id,
           defaultUser.username,
@@ -271,8 +299,10 @@ async function getAllData(userId) {
     pool.query('SELECT id, name, "accountNumber", "initialBalance" FROM banks WHERE "userId" = $1', [userId]),
     pool.query(`SELECT id, "customerId", "bankId", date, type, "goldWeight", "silverWeight",
       rate, "rateMode", "totalAmount", "cashIn", "cashOut", "goldIn", "goldOut",
-      "silverIn", "silverOut", remarks, "impureWeight", point, karat,
-      "paymentMethod", "transferType", "referenceNo" FROM transactions WHERE "userId" = $1`, [userId]),
+      "silverIn", "silverOut", "copperIn", "copperOut", remarks, "impureWeight", point, karat,
+      "paymentMethod", "transferType", "referenceNo", "dueDate", "attachmentId", "attachmentName", "createdAt"
+      FROM transactions WHERE "userId" = $1
+      ORDER BY "createdAt" ASC`, [userId]),
   ]);
   return {
     customers: customers.rows,
@@ -313,15 +343,17 @@ async function saveAllData(userId, state) {
         `INSERT INTO transactions (
           id, "userId", "customerId", "bankId", date, type, "goldWeight", "silverWeight", rate, "rateMode",
           "totalAmount", "cashIn", "cashOut", "goldIn", "goldOut", "silverIn", "silverOut",
-          remarks, "impureWeight", point, karat, "paymentMethod", "transferType", "referenceNo"
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)`,
+          "copperIn", "copperOut", remarks, "impureWeight", point, karat, "paymentMethod", "transferType", "referenceNo",
+          "dueDate", "attachmentId", "attachmentName", "createdAt"
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30)`,
         [
           t.id, userId, t.customerId || null, t.bankId || null, t.date, t.type,
           t.goldWeight || null, t.silverWeight || null, t.rate || null, t.rateMode || null,
           t.totalAmount || null, t.cashIn || null, t.cashOut || null,
           t.goldIn || null, t.goldOut || null, t.silverIn || null, t.silverOut || null,
-          t.remarks, t.impureWeight || null, t.point || null, t.karat || null,
+          t.copperIn || null, t.copperOut || null, t.remarks, t.impureWeight || null, t.point || null, t.karat || null,
           t.paymentMethod || null, t.transferType || null, t.referenceNo || null,
+          t.dueDate || null, t.attachmentId || null, t.attachmentName || null, t.createdAt || new Date().toISOString(),
         ]
       );
     }
@@ -337,6 +369,10 @@ async function saveAllData(userId, state) {
 
 // --- API Routes ---
 
+app.get('/api/ping', (req, res) => {
+  res.json({ ok: true });
+});
+
 app.post('/api/auth/login', async (req, res) => {
   try {
     const username = String(req.body?.username || '').trim();
@@ -347,7 +383,7 @@ app.post('/api/auth/login', async (req, res) => {
     }
 
     const userRes = await pool.query(
-      `SELECT id, username, password_hash, display_name, project_name, role, is_active
+      `SELECT id, username, password_hash, display_name, project_name, role, is_active, phone
        FROM users
        WHERE LOWER(username) = LOWER($1)
        LIMIT 1`,
@@ -388,6 +424,125 @@ app.get('/api/auth/me', requireAuth, async (req, res) => {
 app.post('/api/auth/logout', requireAuth, async (req, res) => {
   res.json({ success: true });
 });
+
+// --- Admin Backup Endpoints ---
+app.post('/api/admin/backup/create', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const targetUserId = String(req.body?.userId || '').trim();
+    if (!targetUserId) return res.status(400).json({ success: false, error: 'userId is required' });
+    const data = await getAllData(targetUserId);
+    const entry = backupManager.createBackup(targetUserId, data, { createdBy: req.user.id });
+    res.status(201).json({ success: true, backup: entry });
+  } catch (error) {
+    console.error('Error creating backup:', error?.message || error);
+    res.status(500).json({ success: false, error: 'Failed to create backup' });
+  }
+});
+
+app.get('/api/admin/backups/:userId', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const userId = String(req.params.userId || '').trim();
+    if (!userId) return res.status(400).json({ success: false, error: 'userId is required' });
+    const list = backupManager.listBackups(userId);
+    res.json({ success: true, backups: list });
+  } catch (error) {
+    console.error('Error listing backups:', error?.message || error);
+    res.status(500).json({ success: false, error: 'Failed to list backups' });
+  }
+});
+
+app.get('/api/admin/backup/:userId/:backupId/download', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const userId = String(req.params.userId || '').trim();
+    const backupId = String(req.params.backupId || '').trim();
+    if (!userId || !backupId) return res.status(400).json({ success: false, error: 'userId and backupId required' });
+    const meta = backupManager.findBackup(userId, backupId);
+    if (!meta) return res.status(404).json({ success: false, error: 'Backup not found' });
+    const file = backupManager.getBackupFilePath(userId, backupId);
+    res.setHeader('Content-Disposition', `attachment; filename=${meta.filename}`);
+    res.setHeader('Content-Type', 'application/gzip');
+    const stream = fs.createReadStream(file);
+    stream.on('error', (err) => {
+      console.error('Backup download error:', err);
+      res.status(500).end();
+    });
+    stream.pipe(res);
+  } catch (error) {
+    console.error('Error downloading backup:', error?.message || error);
+    res.status(500).json({ success: false, error: 'Failed to download backup' });
+  }
+});
+
+app.delete('/api/admin/backup/:userId/:backupId', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const userId = String(req.params.userId || '').trim();
+    const backupId = String(req.params.backupId || '').trim();
+    if (!userId || !backupId) return res.status(400).json({ success: false, error: 'userId and backupId required' });
+    const ok = backupManager.deleteBackup(userId, backupId);
+    if (!ok) return res.status(404).json({ success: false, error: 'Backup not found' });
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting backup:', error?.message || error);
+    res.status(500).json({ success: false, error: 'Failed to delete backup' });
+  }
+});
+
+app.post('/api/admin/backup/:userId/:backupId/restore', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const userId = String(req.params.userId || '').trim();
+    const backupId = String(req.params.backupId || '').trim();
+    if (!userId || !backupId) return res.status(400).json({ success: false, error: 'userId and backupId required' });
+
+    // Safety snapshot before restore
+    const current = await getAllData(userId);
+    const safety = backupManager.createBackup(userId, current, { createdBy: req.user.id, note: 'pre-restore-snapshot' });
+
+    const wrapper = backupManager.readBackupData(userId, backupId);
+    if (!wrapper || wrapper.data === undefined) return res.status(400).json({ success: false, error: 'Invalid backup format' });
+
+    await saveAllData(userId, wrapper.data);
+    const newData = await getAllData(userId);
+    res.json({ success: true, backupId, safetyBackupId: safety.id, data: newData });
+  } catch (error) {
+    console.error('Error restoring backup:', error?.message || error);
+    res.status(500).json({ success: false, error: 'Failed to restore backup' });
+  }
+});
+
+// --- Scheduled backups (runs periodically) ---
+const BACKUP_INTERVAL_MS = Number(process.env.BACKUP_INTERVAL_MS || 3600000); // 1 hour
+
+async function runScheduledBackupsForAllUsers() {
+  const usersRes = await pool.query('SELECT id FROM users WHERE is_active = TRUE');
+  for (const r of usersRes.rows) {
+    try {
+      const uid = r.id;
+      const data = await getAllData(uid);
+      backupManager.createBackup(uid, data, { createdBy: 'system' });
+      const { pruned, kept } = backupManager.pruneToMaxCount(uid, BACKUP_MAX_COUNT);
+      if (pruned > 0) {
+        console.log(`Backup pruned ${pruned} old backup(s) for user ${uid}; ${kept} kept`);
+      }
+    } catch (err) {
+      console.error('Scheduled backup failed for user', r.id, err?.message || err);
+    }
+  }
+}
+
+(async function scheduleBackups() {
+  try {
+    setInterval(async () => {
+      try {
+        await runScheduledBackupsForAllUsers();
+      } catch (err) {
+        console.error('Scheduled backups failed:', err?.message || err);
+      }
+    }, BACKUP_INTERVAL_MS);
+    console.log(`Scheduled backups configured; interval ms=${BACKUP_INTERVAL_MS}, max count=${BACKUP_MAX_COUNT}`);
+  } catch (err) {
+    console.error('Failed to configure scheduled backups:', err?.message || err);
+  }
+})();
 
 app.get('/api/presence/users', requireAuth, async (req, res) => {
   try {
@@ -616,6 +771,131 @@ app.post('/api/restore', requireAuth, upload.single('backup'), async (req, res) 
   }
 });
 
+// --- Transaction Attachments (images/files attached to ledger entries) ---
+const attachmentUpload = multer({
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => cb(null, ATTACHMENTS_DIR),
+    filename: (req, file, cb) => {
+      const id = crypto.randomUUID();
+      const safeName = path.basename(file.originalname).replace(/[^a-zA-Z0-9_.-]/g, '_').slice(0, 150);
+      cb(null, `${id}__${safeName}`);
+    },
+  }),
+  limits: { fileSize: 15 * 1024 * 1024 }, // 15MB
+});
+
+app.post('/api/attachments', requireAuth, attachmentUpload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ success: false, error: 'No file uploaded' });
+    }
+    const id = req.file.filename.split('__')[0];
+    res.json({ success: true, id, name: req.file.originalname });
+  } catch (error) {
+    console.error('Error uploading attachment:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+app.get('/api/attachments/:id', requireAuth, async (req, res) => {
+  try {
+    const id = req.params.id;
+    if (!/^[a-f0-9-]{36}$/.test(id)) {
+      return res.status(400).json({ error: 'Invalid attachment id' });
+    }
+    const files = fs.readdirSync(ATTACHMENTS_DIR).filter(f => f.startsWith(`${id}__`));
+    if (files.length === 0) {
+      return res.status(404).json({ error: 'Attachment not found' });
+    }
+    const filePath = path.join(ATTACHMENTS_DIR, files[0]);
+    const originalName = files[0].slice(id.length + 2);
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(originalName)}"`);
+    fs.createReadStream(filePath).pipe(res);
+  } catch (error) {
+    console.error('Error downloading attachment:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// --- User Backup Routes (self-service, no admin required) ---
+
+// List the authenticated user's own backups
+app.get('/api/backups', requireAuth, async (req, res) => {
+  try {
+    const backups = backupManager.listBackups(req.user.id);
+    // Return newest first; strip internal filename for security
+    const sanitized = backups
+      .slice()
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+      .map(({ id, createdAt, createdBy, note, size }) => ({ id, createdAt, createdBy, note, size }));
+    res.json({ success: true, backups: sanitized });
+  } catch (error) {
+    console.error('Error listing user backups:', error?.message || error);
+    res.status(500).json({ success: false, error: 'Failed to list backups' });
+  }
+});
+
+// Create a manual backup for the authenticated user
+app.post('/api/backups/create', requireAuth, async (req, res) => {
+  try {
+    const data = await getAllData(req.user.id);
+    const entry = backupManager.createBackup(req.user.id, data, {
+      createdBy: req.user.id,
+      note: req.body?.note ? String(req.body.note).slice(0, 200) : 'manual',
+    });
+    // Prune after creating so max count is maintained immediately
+    backupManager.pruneToMaxCount(req.user.id, BACKUP_MAX_COUNT);
+    const { id, createdAt, createdBy, note, size } = entry;
+    res.status(201).json({ success: true, backup: { id, createdAt, createdBy, note, size } });
+  } catch (error) {
+    console.error('Error creating user backup:', error?.message || error);
+    res.status(500).json({ success: false, error: 'Failed to create backup' });
+  }
+});
+
+// Restore the authenticated user's data from one of their own server-side backups
+app.post('/api/backups/:backupId/restore', requireAuth, async (req, res) => {
+  try {
+    const backupId = String(req.params.backupId || '').trim();
+    if (!backupId) {
+      return res.status(400).json({ success: false, error: 'backupId is required' });
+    }
+
+    // Verify the backup belongs to this user
+    const meta = backupManager.findBackup(req.user.id, backupId);
+    if (!meta) {
+      return res.status(404).json({ success: false, error: 'Backup not found' });
+    }
+
+    // Safety snapshot of current data before restore
+    const current = await getAllData(req.user.id);
+    const safety = backupManager.createBackup(req.user.id, current, {
+      createdBy: req.user.id,
+      note: 'pre-restore-snapshot',
+    });
+
+    // Read and validate the requested backup
+    const wrapper = backupManager.readBackupData(req.user.id, backupId);
+    if (!wrapper || wrapper.data === undefined) {
+      return res.status(400).json({ success: false, error: 'Invalid or corrupted backup' });
+    }
+
+    // Restore
+    await saveAllData(req.user.id, wrapper.data);
+    const newData = await getAllData(req.user.id);
+
+    res.json({
+      success: true,
+      backupId,
+      safetyBackupId: safety.id,
+      data: newData,
+    });
+  } catch (error) {
+    console.error('Error restoring user backup:', error?.message || error);
+    res.status(500).json({ success: false, error: 'Failed to restore backup' });
+  }
+});
+
 // --- Serve Frontend (production) ---
 const distPath = path.join(__dirname, 'dist');
 if (fs.existsSync(distPath)) {
@@ -639,7 +919,24 @@ process.on('SIGTERM', async () => {
 });
 
 // --- Start Server ---
-initializeDatabase().then(() => {
+initializeDatabase().then(async () => {
+  // Startup pruning: clean any backups older than retention window for all existing users
+  try {
+    const usersRes = await pool.query('SELECT id FROM users WHERE is_active = TRUE');
+    for (const r of usersRes.rows) {
+      try {
+        const { pruned } = backupManager.pruneToMaxCount(r.id, BACKUP_MAX_COUNT);
+        if (pruned > 0) {
+          console.log(`Startup prune: removed ${pruned} old backup(s) for user ${r.id}`);
+        }
+      } catch (err) {
+        console.error('Startup prune failed for user', r.id, err?.message || err);
+      }
+    }
+  } catch (err) {
+    console.error('Startup prune query failed:', err?.message || err);
+  }
+
   app.listen(PORT, () => {
     console.log(`Server running at http://localhost:${PORT}`);
   });
