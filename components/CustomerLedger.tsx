@@ -289,7 +289,7 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
       setRateMode(loadedRateMode);
       syncRateInput(newFd, loadedRateMode);
       setIsTxModalOpen(true);
-      setWeightMode('GRAM');
+      setWeightMode(loadedRateMode);
       setUseAltTola(false);
       syncInputs(newFd);
     }
@@ -301,7 +301,7 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
     const clearedFd = createDefaultFormData(dateOverride ?? formData.date);
     if (type === TransactionType.LEDGER_TRANSFER) clearedFd.direction = 'OUT';
     setFormData(clearedFd);
-    setWeightMode('GRAM');
+    setWeightMode('TOLA');
     setRateMode('TOLA');
     setUseAltTola(false);
     setRateInput('');
@@ -312,7 +312,11 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
     syncInputs(clearedFd);
   };
 
-  const handleRateModeChange = (mode: 'GRAM' | 'TOLA') => {
+  // Keep the weight unit and the execution-rate unit in lockstep: whichever one the
+  // user changes (Weight Unit or Execution Pricing), the other snaps to match, so a
+  // rate typed "per tola" is never silently paired with a "per gram" weight, or vice versa.
+  const setUnitMode = (mode: 'GRAM' | 'TOLA') => {
+    setWeightMode(mode);
     setRateMode(mode);
     syncRateInput(formData, mode);
   };
@@ -1243,8 +1247,8 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
                                   <label className="block text-xs font-semibold text-indigo-400 tracking-wide">Trade Calculator (96/24K)</label>
                                   <div className="flex gap-2">
                                     <div className="flex bg-white dark:bg-slate-900 rounded-lg p-1 border border-gray-200 dark:border-slate-700 shadow-inner">
-                                      <button type="button" onClick={() => setWeightMode('GRAM')} className={`px-2 py-1 rounded-md text-[10px] font-semibold transition-all ${weightMode === 'GRAM' ? 'bg-indigo-600 text-white' : 'text-gray-400 dark:text-slate-500'}`}>Gram</button>
-                                      <button type="button" onClick={() => setWeightMode('TOLA')} className={`px-2 py-1 rounded-md text-[10px] font-semibold transition-all ${weightMode === 'TOLA' ? 'bg-indigo-600 text-white' : 'text-gray-400 dark:text-slate-500'}`}>Tola</button>
+                                      <button type="button" onClick={() => setUnitMode('GRAM')} className={`px-2 py-1 rounded-md text-[10px] font-semibold transition-all ${weightMode === 'GRAM' ? 'bg-indigo-600 text-white' : 'text-gray-400 dark:text-slate-500'}`}>Gram</button>
+                                      <button type="button" onClick={() => setUnitMode('TOLA')} className={`px-2 py-1 rounded-md text-[10px] font-semibold transition-all ${weightMode === 'TOLA' ? 'bg-indigo-600 text-white' : 'text-gray-400 dark:text-slate-500'}`}>Tola</button>
                                     </div>
                                     <div className="flex bg-white dark:bg-slate-900 rounded-lg p-1 border border-indigo-200 dark:border-indigo-900 shadow-inner">
                                       <button type="button" onClick={() => handleSettleModeToggle('POINT')} className={`px-2 py-1 rounded-md text-[10px] font-semibold transition-all ${settleMode === 'POINT' ? 'bg-indigo-900 text-white' : 'text-indigo-400 dark:text-indigo-500'}`}>Points</button>
@@ -1285,8 +1289,8 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
                                <div className="flex justify-between items-center">
                                   <label className="block text-[7px] font-black uppercase text-gray-400 dark:text-slate-500">Weight Unit {weightMode === 'TOLA' && (<span className="normal-case text-indigo-400 dark:text-indigo-500 font-semibold">(1 Tola = {activeTolaWeight}g)</span>)}</label>
                                   <div className="flex bg-white dark:bg-slate-900 rounded-lg p-1 border border-gray-200 dark:border-slate-700 shadow-inner">
-                                    <button type="button" onClick={() => setWeightMode('GRAM')} className={`px-3 py-1 rounded-md text-[8px] font-black uppercase transition-all ${weightMode === 'GRAM' ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-400 dark:text-slate-500'}`}>Gram</button>
-                                    <button type="button" onClick={() => setWeightMode('TOLA')} className={`px-3 py-1 rounded-md text-[8px] font-black uppercase transition-all ${weightMode === 'TOLA' ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-400 dark:text-slate-500'}`}>Tola</button>
+                                    <button type="button" onClick={() => setUnitMode('GRAM')} className={`px-3 py-1 rounded-md text-[8px] font-black uppercase transition-all ${weightMode === 'GRAM' ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-400 dark:text-slate-500'}`}>Gram</button>
+                                    <button type="button" onClick={() => setUnitMode('TOLA')} className={`px-3 py-1 rounded-md text-[8px] font-black uppercase transition-all ${weightMode === 'TOLA' ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-400 dark:text-slate-500'}`}>Tola</button>
                                   </div>
                                </div>
                                <div className="relative">
@@ -1311,8 +1315,8 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
                     <div className="flex justify-between items-center">
                       <span className="text-xs font-semibold text-indigo-400 tracking-wide">Execution Pricing</span>
                       <div className="flex bg-white dark:bg-slate-900 rounded-lg p-0.5 border border-gray-200 dark:border-slate-700 shadow-inner">
-                         <button type="button" onClick={() => handleRateModeChange('GRAM')} className={`px-3 py-1 rounded-md text-[10px] font-semibold transition-all ${rateMode === 'GRAM' ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-400 dark:text-slate-500'}`}>Per Gram</button>
-                         <button type="button" onClick={() => handleRateModeChange('TOLA')} className={`px-3 py-1 rounded-md text-[10px] font-semibold transition-all ${rateMode === 'TOLA' ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-400 dark:text-slate-500'}`}>Per Tola</button>
+                         <button type="button" onClick={() => setUnitMode('GRAM')} className={`px-3 py-1 rounded-md text-[10px] font-semibold transition-all ${rateMode === 'GRAM' ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-400 dark:text-slate-500'}`}>Per Gram</button>
+                         <button type="button" onClick={() => setUnitMode('TOLA')} className={`px-3 py-1 rounded-md text-[10px] font-semibold transition-all ${rateMode === 'TOLA' ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-400 dark:text-slate-500'}`}>Per Tola</button>
                       </div>
                     </div>
                     <div className="grid grid-cols-2 gap-4 items-center">
