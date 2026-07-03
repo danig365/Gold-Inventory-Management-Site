@@ -1214,7 +1214,7 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
                     </div>
                   )}
 
-                  {(isMetalTrade || isMetalSettle) && (
+                  {(isMetalTrade || isMetalSettle || (isTransfer && formData.transferAsset === 'GOLD')) && (
                     <div className="col-span-1 sm:col-span-2">
                        <div className="p-4 bg-gray-50 dark:bg-slate-800 rounded-xl border border-gray-100 dark:border-slate-700 space-y-4 shadow-sm">
                           {isMetalTrade && (
@@ -1237,7 +1237,7 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
                              </div>
                           )}
 
-                          {isCalcMode ? (
+                          {(isCalcMode || (isTransfer && formData.transferAsset === 'GOLD')) ? (
                              <div className="space-y-4 pt-2 border-t border-gray-100 dark:border-slate-700">
                                 <div className="flex justify-between items-center">
                                   <label className="block text-xs font-semibold text-indigo-400 tracking-wide">Trade Calculator (96/24K)</label>
@@ -1391,8 +1391,8 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
                     <div>
                       <label className="block text-[8px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest mb-1">Transfer Asset</label>
                       <div className="flex bg-gray-100 dark:bg-slate-800 p-1 rounded-lg border border-gray-200 dark:border-slate-700">
-                        <button type="button" onClick={() => { setFormData({...formData, transferAsset: 'CASH'}); setWeightInput(''); }} className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-md font-black uppercase text-[8px] transition-all ${formData.transferAsset === 'CASH' ? 'bg-purple-600 text-white shadow-sm' : 'text-gray-400 dark:text-slate-500 hover:text-gray-500 dark:hover:text-slate-300'}`}><Wallet size={12} />Cash</button>
-                        <button type="button" onClick={() => { setFormData({...formData, transferAsset: 'GOLD'}); setAmountInput(''); }} className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-md font-black uppercase text-[8px] transition-all ${formData.transferAsset === 'GOLD' ? 'bg-amber-500 text-white shadow-sm' : 'text-gray-400 dark:text-slate-500 hover:text-gray-500 dark:hover:text-slate-300'}`}><Scale size={12} />Gold</button>
+                        <button type="button" onClick={() => { setFormData({...formData, transferAsset: 'CASH', weight: 0, impureWeight: 0, point: 0, karat: 24}); setWeightInput(''); setImpureInput(''); setPointInput(''); setKaratInput('24'); }} className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-md font-black uppercase text-[8px] transition-all ${formData.transferAsset === 'CASH' ? 'bg-purple-600 text-white shadow-sm' : 'text-gray-400 dark:text-slate-500 hover:text-gray-500 dark:hover:text-slate-300'}`}><Wallet size={12} />Cash</button>
+                        <button type="button" onClick={() => { setFormData({...formData, transferAsset: 'GOLD', amount: 0}); setAmountInput(''); setWeightInput(''); setImpureInput(''); setPointInput(''); setKaratInput('24'); }} className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-md font-black uppercase text-[8px] transition-all ${formData.transferAsset === 'GOLD' ? 'bg-amber-500 text-white shadow-sm' : 'text-gray-400 dark:text-slate-500 hover:text-gray-500 dark:hover:text-slate-300'}`}><Scale size={12} />Gold</button>
                       </div>
                     </div>
 
@@ -1447,12 +1447,7 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
                       </div>
                     </div>
 
-                    {formData.transferAsset === 'GOLD' ? (
-                      <div className="relative">
-                          <input required className="w-full p-5 border-2 border-amber-100 dark:border-amber-900 bg-amber-50/20 dark:bg-amber-950/20 rounded-2xl font-bold text-3xl text-amber-900 dark:text-amber-300 shadow-inner focus:ring-1 focus:ring-amber-500 outline-none placeholder:text-amber-200 dark:placeholder:text-amber-900" type="text" value={weightInput} onChange={e => { setWeightInput(e.target.value); setFormData({...formData, weight: evaluateMath(e.target.value)}); }} placeholder="0.000" />
-                          <div className="absolute right-5 top-1/2 -translate-y-1/2 text-amber-200 dark:text-amber-900 font-semibold text-sm">GRAMS</div>
-                      </div>
-                    ) : (
+                    {formData.transferAsset === 'CASH' && (
                       <div className="relative">
                           <input required className="w-full p-5 border-2 border-purple-100 dark:border-purple-900 bg-purple-50/20 dark:bg-purple-950/20 rounded-2xl font-bold text-3xl text-purple-900 dark:text-purple-300 shadow-inner focus:ring-1 focus:ring-purple-500 outline-none placeholder:text-purple-200 dark:placeholder:text-purple-900" type="text" value={amountInput} onChange={e => { setAmountInput(e.target.value); setFormData({...formData, amount: evaluateMath(e.target.value)}); }} placeholder="0.00" />
                           <div className="absolute right-5 top-1/2 -translate-y-1/2 text-purple-200 dark:text-purple-900 font-semibold text-sm">PKR</div>
