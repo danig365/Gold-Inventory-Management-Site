@@ -743,12 +743,6 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
     return type.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()).join(' ');
   };
 
-  const formatEntryTime = (t: { createdAt?: string }) => {
-    if (!t.createdAt) return '-';
-    const d = new Date(t.createdAt);
-    if (isNaN(d.getTime())) return '-';
-    return format(d, 'hh:mm a');
-  };
 
   const getBankName = (bankId?: string) => {
     if (!bankId) return null;
@@ -1066,9 +1060,7 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
                 <th className="px-2 py-4 text-center border border-gray-300 dark:border-slate-700">★</th>
                 <th className="px-3 py-4 text-left border border-gray-300 dark:border-slate-700">Sr No</th>
                 <th className="px-3 py-4 text-left border border-gray-300 dark:border-slate-700">Date</th>
-                <th className="px-3 py-4 text-left border border-gray-300 dark:border-slate-700">Time</th>
                 <th className="px-3 py-4 text-left border border-gray-300 dark:border-slate-700">Description</th>
-                <th className="px-3 py-4 text-left border border-gray-300 dark:border-slate-700">Remarks</th>
                 <th className="px-3 py-4 text-right border border-gray-300 dark:border-slate-700">Impure (g)</th>
                 <th className="px-3 py-4 text-right border border-gray-300 dark:border-slate-700">Point/Karat</th>
                 <th className="px-3 py-4 text-right border border-gray-300 dark:border-slate-700">Pure (g)</th>
@@ -1084,7 +1076,7 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
             </thead>
             <tbody className="divide-y divide-gray-300 dark:divide-slate-800">
               {tableDisplayData.length === 0 ? (
-                <tr><td colSpan={17} className="px-4 py-12 text-center text-gray-400 dark:text-slate-600 font-medium border border-gray-300 dark:border-slate-800 transition-colors">No transactions recorded</td></tr>
+                <tr><td colSpan={15} className="px-4 py-12 text-center text-gray-400 dark:text-slate-600 font-medium border border-gray-300 dark:border-slate-800 transition-colors">No transactions recorded</td></tr>
               ) : (
                 tableDisplayData.map((t, index) => (
                   <tr key={t.id} className={`transition-colors group border-b border-gray-300 dark:border-slate-800 ${starredIds.has(t.id) ? 'ring-1 ring-yellow-300 dark:ring-yellow-700 bg-yellow-50 dark:bg-yellow-950/20' : ''} ${usePlainTable ? 'bg-white dark:bg-slate-900 hover:bg-gray-50 dark:hover:bg-slate-800' : (index % 2 === 0 ? 'bg-[#CAF0F8] dark:bg-indigo-950/40' : 'bg-[#90E0EF] dark:bg-indigo-900/20')}`}>
@@ -1095,7 +1087,6 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
                     </td>
                     <td className="px-3 py-2 font-semibold text-gray-700 dark:text-slate-400 border-r border-gray-300 dark:border-slate-800">{t.srNo}</td>
                     <td className="px-3 py-2 font-medium text-gray-800 dark:text-slate-300 border-r border-gray-300 dark:border-slate-800">{format(parseDateString(t.date), 'dd/MM/yy')}</td>
-                    <td className="px-3 py-2 text-xs font-medium text-gray-500 dark:text-slate-500 border-r border-gray-300 dark:border-slate-800">{formatEntryTime(t)}</td>
                     <td className="px-3 py-2 border-r border-gray-300 dark:border-slate-800">
                       <div className="font-semibold text-indigo-900 dark:text-indigo-400 leading-none">{formatType(t.type)}</div>
                       {t.referenceNo && (
@@ -1103,8 +1094,10 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
                           Ref: {t.referenceNo}{getBankName(t.bankId) && <span className="text-indigo-500 dark:text-indigo-400"> • {getBankName(t.bankId)}</span>}
                         </div>
                       )}
+                      {t.remarks && (
+                        <div className="text-xs text-gray-500 dark:text-slate-400 italic mt-0.5">{t.remarks}</div>
+                      )}
                     </td>
-                    <td className="px-3 py-2 text-sm text-gray-600 dark:text-slate-400 italic border-r border-gray-300 dark:border-slate-800">{t.remarks || '-'}</td>
                     <td className="px-3 py-2 text-right font-medium text-gray-700 dark:text-slate-400 border-r border-gray-300 dark:border-slate-800">{t.impureWeight?.toFixed(2) || '-'}</td>
                     <td className="px-3 py-2 text-right font-medium text-gray-700 dark:text-slate-400 border-r border-gray-300 dark:border-slate-800">
                       {t.point ? `${t.point} (P)` : (t.karat ? `${t.karat} (K)` : '-')}
