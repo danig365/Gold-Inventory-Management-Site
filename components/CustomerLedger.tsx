@@ -777,9 +777,7 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
     const data = ledgerData.map(t => ({
       'Sr No': t.srNo,
       'Date': format(parseDateString(t.date), 'dd/MM/yyyy'),
-      'Time': formatEntryTime(t),
-      'Description': formatType(t.type),
-      'Remarks': t.remarks || '-',
+      'Description': t.remarks ? `${formatType(t.type)} - ${t.remarks}` : formatType(t.type),
       'Impure (g)': t.impureWeight || '-',
       'Point/Karat': t.point || t.karat || '-',
       'Pure (g)': (t.goldWeight || t.goldIn || t.goldOut || t.silverWeight || t.silverIn || t.silverOut || t.copperWeight || t.copperIn || t.copperOut || 0).toFixed(3),
@@ -825,9 +823,7 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
     const tableRows = ledgerData.map(t => [
         t.srNo,
         format(parseDateString(t.date), 'dd/MM/yy'),
-        formatEntryTime(t),
-        formatType(t.type),
-        t.remarks || '-',
+        t.remarks ? `${formatType(t.type)}\n${t.remarks}` : formatType(t.type),
         t.impureWeight?.toFixed(2) || '-',
         t.point ? `${t.point} (P)` : (t.karat ? `${t.karat} (K)` : '-'),
         (t.goldWeight || t.goldIn || t.goldOut || t.silverWeight || t.silverIn || t.silverOut || t.copperWeight || t.copperIn || t.copperOut || 0).toFixed(3),
@@ -843,12 +839,12 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
 
     autoTable(doc, {
       startY: 55,
-      head: [['Sr', 'Date', 'Time', 'Description', 'Remarks', 'Impure (g)', 'Point/Karat', 'Pure', 'Rate', 'Receivable', 'Payable', 'Cash Balance', 'Gold Bal', 'Silver Bal', 'Copper Bal']],
+      head: [['Sr', 'Date', 'Description', 'Impure (g)', 'Point/Karat', 'Pure', 'Rate', 'Receivable', 'Payable', 'Cash Balance', 'Gold Bal', 'Silver Bal', 'Copper Bal']],
       body: tableRows,
       theme: 'grid',
       headStyles: { fillColor: [67, 56, 202] },
       styles: { fontSize: 7 },
-      columnStyles: { 3: { cellWidth: 20 }, 4: { cellWidth: 22 } },
+      columnStyles: { 2: { cellWidth: 32 } },
     });
 
     const finalY = (doc as any).lastAutoTable.finalY + 15;
