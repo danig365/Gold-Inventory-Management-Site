@@ -168,7 +168,7 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
   }, [activeForm]);
 
   const isMetalSettle = useMemo(() => {
-    return [TransactionType.GOLD_SETTLEMENT, TransactionType.SILVER_SETTLEMENT].includes(activeForm);
+    return [TransactionType.GOLD_SETTLEMENT, TransactionType.SILVER_SETTLEMENT, TransactionType.COPPER_SETTLEMENT].includes(activeForm);
   }, [activeForm]);
 
   const isSilverTrade = useMemo(() => {
