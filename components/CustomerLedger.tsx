@@ -1224,7 +1224,7 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
                     </div>
                   )}
 
-                  {(isMetalTrade || isMetalSettle || (isTransfer && goldTransferEnabled)) && (
+                  {(isMetalTrade || isMetalSettle) && (
                     <div className="col-span-1 sm:col-span-2">
                        <div className="p-4 bg-gray-50 dark:bg-slate-800 rounded-xl border border-gray-100 dark:border-slate-700 space-y-4 shadow-sm">
                           {isMetalTrade && (
@@ -1247,7 +1247,7 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
                              </div>
                           )}
 
-                          {(isCalcMode || (isTransfer && goldTransferEnabled)) ? (
+                          {isCalcMode ? (
                              <div className="space-y-4 pt-2 border-t border-gray-100 dark:border-slate-700">
                                 <div className="flex justify-between items-center">
                                   <label className="block text-xs font-semibold text-indigo-400 tracking-wide">Trade Calculator (96/24K)</label>
@@ -1456,6 +1456,40 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
                         <button type="button" onClick={() => setFormData({...formData, direction: 'IN'})} className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-md font-black uppercase text-[8px] transition-all ${formData.direction === 'IN' ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-400 dark:text-slate-500 hover:text-gray-500 dark:hover:text-slate-300'}`}><ArrowDownLeft size={12} />Receive From Selected Ledger</button>
                       </div>
                     </div>
+
+                    {goldTransferEnabled && (
+                      <div className="p-4 bg-amber-50/40 dark:bg-slate-800 rounded-xl border border-amber-100 dark:border-slate-700 space-y-4 shadow-sm">
+                         <div className="flex justify-between items-center">
+                           <label className="block text-xs font-semibold text-amber-600 dark:text-amber-400 tracking-wide">Gold Weight (Trade Calculator 96/24K)</label>
+                           <div className="flex gap-2">
+                             <div className="flex bg-white dark:bg-slate-900 rounded-lg p-1 border border-gray-200 dark:border-slate-700 shadow-inner">
+                               <button type="button" onClick={() => setWeightMode('GRAM')} className={`px-2 py-1 rounded-md text-[10px] font-semibold transition-all ${weightMode === 'GRAM' ? 'bg-amber-500 text-white' : 'text-gray-400 dark:text-slate-500'}`}>Gram</button>
+                               <button type="button" onClick={() => setWeightMode('TOLA')} className={`px-2 py-1 rounded-md text-[10px] font-semibold transition-all ${weightMode === 'TOLA' ? 'bg-amber-500 text-white' : 'text-gray-400 dark:text-slate-500'}`}>Tola</button>
+                             </div>
+                             <div className="flex bg-white dark:bg-slate-900 rounded-lg p-1 border border-amber-200 dark:border-amber-900 shadow-inner">
+                               <button type="button" onClick={() => handleSettleModeToggle('POINT')} className={`px-2 py-1 rounded-md text-[10px] font-semibold transition-all ${settleMode === 'POINT' ? 'bg-amber-600 text-white' : 'text-amber-500 dark:text-amber-500'}`}>Points</button>
+                               <button type="button" onClick={() => handleSettleModeToggle('KARAT')} className={`px-2 py-1 rounded-md text-[10px] font-semibold transition-all ${settleMode === 'KARAT' ? 'bg-amber-600 text-white' : 'text-amber-500 dark:text-amber-500'}`}>Karat</button>
+                             </div>
+                           </div>
+                         </div>
+                         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                            <div>
+                              <label className="block text-[8px] font-black uppercase text-amber-700 dark:text-amber-400 mb-1">1. Impure ({weightMode})</label>
+                              <input type="text" className="w-full p-2.5 border border-amber-200 dark:border-amber-900/50 rounded-xl font-black text-[10px] focus:ring-1 focus:ring-amber-500 outline-none bg-white dark:bg-slate-900 dark:text-slate-100" value={impureInput} onChange={e => handleImpureInputChange(e.target.value)} placeholder="Weight..." />
+                            </div>
+                            <div>
+                              <label className="block text-[8px] font-black uppercase text-amber-700 dark:text-amber-400 mb-1">{settleMode === 'POINT' ? '2. Points (96)' : '2. Karat (24)'}</label>
+                              <input type="text" className="w-full p-2.5 border border-amber-200 dark:border-amber-900/50 rounded-xl font-black text-[10px] focus:ring-1 focus:ring-amber-500 outline-none bg-white dark:bg-slate-900 dark:text-slate-100" value={settleMode === 'POINT' ? pointInput : karatInput} onChange={e => settleMode === 'POINT' ? handlePointInputChange(e.target.value) : handleKaratInputChange(e.target.value)} placeholder={settleMode === 'POINT' ? "0" : "24"} />
+                            </div>
+                            <div>
+                               <label className="block text-[8px] font-black uppercase text-green-700 dark:text-green-400 mb-1">3. Pure (Grams)</label>
+                               <div className="relative">
+                                  <input readOnly className="w-full p-2.5 border border-green-500 dark:border-green-700 bg-green-50 dark:bg-green-900/10 rounded-xl font-black text-[10px] text-green-900 dark:text-green-300 outline-none" value={weightInput} placeholder="Result..." />
+                               </div>
+                            </div>
+                         </div>
+                      </div>
+                    )}
 
                     {cashTransferEnabled && (
                       <div className="relative">
