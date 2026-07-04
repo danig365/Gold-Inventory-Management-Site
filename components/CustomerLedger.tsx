@@ -65,7 +65,7 @@ type TransactionFormData = {
   attachmentId: string;
   attachmentName: string;
   transferCustomerId: string;
-  transferAsset: 'CASH' | 'GOLD';
+  transferAsset: 'CASH' | 'GOLD' | 'BOTH';
 };
 
 const CustomerLedger: React.FC<CustomerLedgerProps> = ({
@@ -176,6 +176,21 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
   }, [activeForm]);
 
   const isTransfer = useMemo(() => activeForm === TransactionType.LEDGER_TRANSFER, [activeForm]);
+
+  const cashTransferEnabled = formData.transferAsset === 'CASH' || formData.transferAsset === 'BOTH';
+  const goldTransferEnabled = formData.transferAsset === 'GOLD' || formData.transferAsset === 'BOTH';
+
+  const toggleTransferAsset = (asset: 'CASH' | 'GOLD') => {
+    let nextCash = cashTransferEnabled;
+    let nextGold = goldTransferEnabled;
+    if (asset === 'CASH') nextCash = !nextCash; else nextGold = !nextGold;
+    if (!nextCash && !nextGold) return; // at least one asset must stay enabled
+    const nextAsset: 'CASH' | 'GOLD' | 'BOTH' = nextCash && nextGold ? 'BOTH' : nextCash ? 'CASH' : 'GOLD';
+    const updated: TransactionFormData = { ...formData, transferAsset: nextAsset };
+    if (!nextCash) { updated.amount = 0; setAmountInput(''); }
+    if (!nextGold) { updated.weight = 0; updated.impureWeight = 0; updated.point = 0; updated.karat = 24; setWeightInput(''); setImpureInput(''); setPointInput(''); setKaratInput('24'); }
+    setFormData(updated);
+  };
 
   const transferTargets = useMemo(() => {
     return customers.filter(c => c.id !== customer.id).sort((a, b) => a.name.localeCompare(b.name));
@@ -570,14 +585,12 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
     setRefError(null);
 
     if (activeForm === TransactionType.LEDGER_TRANSFER) {
-      const isGoldTransfer = formData.transferAsset === 'GOLD';
+      const wantsGold = formData.transferAsset === 'GOLD' || formData.transferAsset === 'BOTH';
+      const wantsCash = formData.transferAsset === 'CASH' || formData.transferAsset === 'BOTH';
       if (!formData.transferCustomerId) { setRefError("Please select a ledger to transfer with."); return; }
       if (formData.transferCustomerId === customer.id) { setRefError("Cannot transfer within the same ledger."); return; }
-      if (isGoldTransfer) {
-        if (formData.weight <= 0) { setRefError("Transfer weight must be a positive number."); return; }
-      } else {
-        if (formData.amount <= 0) { setRefError("Transfer amount must be a positive number."); return; }
-      }
+      if (wantsGold && formData.weight <= 0) { setRefError("Transfer weight must be a positive number."); return; }
+      if (wantsCash && formData.amount <= 0) { setRefError("Transfer amount must be a positive number."); return; }
 
       const targetCustomer = customers.find(c => c.id === formData.transferCustomerId);
       if (!targetCustomer) { setRefError("Selected ledger could not be found."); return; }
@@ -591,53 +604,61 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
       const noteSuffix = formData.remarks ? ` - ${formData.remarks}` : '';
       const transferTimestamp = new Date().toISOString();
 
-      const debitTx: Transaction = isGoldTransfer ? {
-        id: `${transferId}-OUT`,
-        customerId: sourceId,
-        date: formData.date,
-        type: TransactionType.GOLD_SETTLEMENT,
-        goldIn: formData.weight,
-        goldOut: 0,
-        referenceNo: transferId,
-        remarks: `Gold Ledger Transfer: Paid to ${destName} (Ref: ${transferId})${noteSuffix}`,
-        createdAt: transferTimestamp,
-      } : {
-        id: `${transferId}-OUT`,
-        customerId: sourceId,
-        date: formData.date,
-        type: TransactionType.CASH_PAYMENT,
-        cashIn: formData.amount,
-        cashOut: 0,
-        paymentMethod: PaymentMethod.CASH,
-        referenceNo: transferId,
-        remarks: `Ledger Transfer: Paid to ${destName} (Ref: ${transferId})${noteSuffix}`,
-        createdAt: transferTimestamp,
-      };
-      const creditTx: Transaction = isGoldTransfer ? {
-        id: `${transferId}-IN`,
-        customerId: destId,
-        date: formData.date,
-        type: TransactionType.GOLD_SETTLEMENT,
-        goldIn: 0,
-        goldOut: formData.weight,
-        referenceNo: transferId,
-        remarks: `Gold Ledger Transfer: Received from ${sourceName} (Ref: ${transferId})${noteSuffix}`,
-        createdAt: transferTimestamp,
-      } : {
-        id: `${transferId}-IN`,
-        customerId: destId,
-        date: formData.date,
-        type: TransactionType.CASH_PAYMENT,
-        cashIn: 0,
-        cashOut: formData.amount,
-        paymentMethod: PaymentMethod.CASH,
-        referenceNo: transferId,
-        remarks: `Ledger Transfer: Received from ${sourceName} (Ref: ${transferId})${noteSuffix}`,
-        createdAt: transferTimestamp,
-      };
+      const txsToAdd: Transaction[] = [];
 
-      onAddTransaction(debitTx);
-      onAddTransaction(creditTx);
+      if (wantsGold) {
+        txsToAdd.push({
+          id: `${transferId}-GOLD-OUT`,
+          customerId: sourceId,
+          date: formData.date,
+          type: TransactionType.GOLD_SETTLEMENT,
+          goldIn: formData.weight,
+          goldOut: 0,
+          referenceNo: transferId,
+          remarks: `Gold Ledger Transfer: Paid to ${destName} (Ref: ${transferId})${noteSuffix}`,
+          createdAt: transferTimestamp,
+        });
+        txsToAdd.push({
+          id: `${transferId}-GOLD-IN`,
+          customerId: destId,
+          date: formData.date,
+          type: TransactionType.GOLD_SETTLEMENT,
+          goldIn: 0,
+          goldOut: formData.weight,
+          referenceNo: transferId,
+          remarks: `Gold Ledger Transfer: Received from ${sourceName} (Ref: ${transferId})${noteSuffix}`,
+          createdAt: transferTimestamp,
+        });
+      }
+
+      if (wantsCash) {
+        txsToAdd.push({
+          id: `${transferId}-CASH-OUT`,
+          customerId: sourceId,
+          date: formData.date,
+          type: TransactionType.CASH_PAYMENT,
+          cashIn: formData.amount,
+          cashOut: 0,
+          paymentMethod: PaymentMethod.CASH,
+          referenceNo: transferId,
+          remarks: `Ledger Transfer: Paid to ${destName} (Ref: ${transferId})${noteSuffix}`,
+          createdAt: transferTimestamp,
+        });
+        txsToAdd.push({
+          id: `${transferId}-CASH-IN`,
+          customerId: destId,
+          date: formData.date,
+          type: TransactionType.CASH_PAYMENT,
+          cashIn: 0,
+          cashOut: formData.amount,
+          paymentMethod: PaymentMethod.CASH,
+          referenceNo: transferId,
+          remarks: `Ledger Transfer: Received from ${sourceName} (Ref: ${transferId})${noteSuffix}`,
+          createdAt: transferTimestamp,
+        });
+      }
+
+      txsToAdd.forEach(tx => onAddTransaction(tx));
 
       localStorage.removeItem(draftKey);
       localStorage.removeItem(`${draftKey}_type`);
@@ -1203,7 +1224,7 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
                     </div>
                   )}
 
-                  {(isMetalTrade || isMetalSettle || (isTransfer && formData.transferAsset === 'GOLD')) && (
+                  {(isMetalTrade || isMetalSettle || (isTransfer && goldTransferEnabled)) && (
                     <div className="col-span-1 sm:col-span-2">
                        <div className="p-4 bg-gray-50 dark:bg-slate-800 rounded-xl border border-gray-100 dark:border-slate-700 space-y-4 shadow-sm">
                           {isMetalTrade && (
@@ -1226,7 +1247,7 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
                              </div>
                           )}
 
-                          {(isCalcMode || (isTransfer && formData.transferAsset === 'GOLD')) ? (
+                          {(isCalcMode || (isTransfer && goldTransferEnabled)) ? (
                              <div className="space-y-4 pt-2 border-t border-gray-100 dark:border-slate-700">
                                 <div className="flex justify-between items-center">
                                   <label className="block text-xs font-semibold text-indigo-400 tracking-wide">Trade Calculator (96/24K)</label>
@@ -1380,8 +1401,8 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
                     <div>
                       <label className="block text-[8px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest mb-1">Transfer Asset</label>
                       <div className="flex bg-gray-100 dark:bg-slate-800 p-1 rounded-lg border border-gray-200 dark:border-slate-700">
-                        <button type="button" onClick={() => { setFormData({...formData, transferAsset: 'CASH', weight: 0, impureWeight: 0, point: 0, karat: 24}); setWeightInput(''); setImpureInput(''); setPointInput(''); setKaratInput('24'); }} className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-md font-black uppercase text-[8px] transition-all ${formData.transferAsset === 'CASH' ? 'bg-purple-600 text-white shadow-sm' : 'text-gray-400 dark:text-slate-500 hover:text-gray-500 dark:hover:text-slate-300'}`}><Wallet size={12} />Cash</button>
-                        <button type="button" onClick={() => { setFormData({...formData, transferAsset: 'GOLD', amount: 0}); setAmountInput(''); setWeightInput(''); setImpureInput(''); setPointInput(''); setKaratInput('24'); }} className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-md font-black uppercase text-[8px] transition-all ${formData.transferAsset === 'GOLD' ? 'bg-amber-500 text-white shadow-sm' : 'text-gray-400 dark:text-slate-500 hover:text-gray-500 dark:hover:text-slate-300'}`}><Scale size={12} />Gold</button>
+                        <button type="button" onClick={() => toggleTransferAsset('CASH')} className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-md font-black uppercase text-[8px] transition-all ${cashTransferEnabled ? 'bg-purple-600 text-white shadow-sm' : 'text-gray-400 dark:text-slate-500 hover:text-gray-500 dark:hover:text-slate-300'}`}><Wallet size={12} />Cash</button>
+                        <button type="button" onClick={() => toggleTransferAsset('GOLD')} className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-md font-black uppercase text-[8px] transition-all ${goldTransferEnabled ? 'bg-amber-500 text-white shadow-sm' : 'text-gray-400 dark:text-slate-500 hover:text-gray-500 dark:hover:text-slate-300'}`}><Scale size={12} />Gold</button>
                       </div>
                     </div>
 
@@ -1436,16 +1457,16 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
                       </div>
                     </div>
 
-                    {formData.transferAsset === 'CASH' && (
+                    {cashTransferEnabled && (
                       <div className="relative">
                           <input required className="w-full p-5 border-2 border-purple-100 dark:border-purple-900 bg-purple-50/20 dark:bg-purple-950/20 rounded-2xl font-bold text-3xl text-purple-900 dark:text-purple-300 shadow-inner focus:ring-1 focus:ring-purple-500 outline-none placeholder:text-purple-200 dark:placeholder:text-purple-900" type="text" value={amountInput} onChange={e => { setAmountInput(e.target.value); setFormData({...formData, amount: evaluateMath(e.target.value)}); }} placeholder="0.00" />
                           <div className="absolute right-5 top-1/2 -translate-y-1/2 text-purple-200 dark:text-purple-900 font-semibold text-sm">PKR</div>
                       </div>
                     )}
 
-                    {formData.transferCustomerId && (formData.transferAsset === 'GOLD' ? formData.weight > 0 : formData.amount > 0) && (
+                    {formData.transferCustomerId && ((goldTransferEnabled && formData.weight > 0) || (cashTransferEnabled && formData.amount > 0)) && (
                       <div className="p-3 bg-gray-50 dark:bg-slate-800 rounded-xl text-xs font-semibold text-gray-600 dark:text-slate-300 text-center">
-                        {formData.transferAsset === 'GOLD' ? `${formData.weight.toLocaleString()}g Gold` : `Rs. ${formData.amount.toLocaleString()}`} will move from{' '}
+                        {[cashTransferEnabled && formData.amount > 0 ? `Rs. ${formData.amount.toLocaleString()}` : null, goldTransferEnabled && formData.weight > 0 ? `${formData.weight.toLocaleString()}g Gold` : null].filter(Boolean).join(' + ')} will move from{' '}
                         <span className="text-rose-600 dark:text-rose-400">{formData.direction === 'OUT' ? customer.name : (transferTargets.find(c => c.id === formData.transferCustomerId)?.name || '')}</span>
                         {' '}to{' '}
                         <span className="text-green-600 dark:text-green-400">{formData.direction === 'OUT' ? (transferTargets.find(c => c.id === formData.transferCustomerId)?.name || '') : customer.name}</span>
