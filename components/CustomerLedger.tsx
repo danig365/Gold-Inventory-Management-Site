@@ -59,6 +59,7 @@ type TransactionFormData = {
   transferType: TransferType;
   referenceNo: string;
   direction: 'IN' | 'OUT';
+  goldDirection: 'IN' | 'OUT';
   impureWeight: number;
   point: number;
   karat: number;
@@ -132,6 +133,7 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
     transferType: TransferType.TF,
     referenceNo: '',
     direction: 'IN',
+    goldDirection: 'IN',
     impureWeight: 0,
     point: 0,
     karat: 24,
@@ -289,6 +291,7 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
         transferType: editingTransaction.transferType || TransferType.TF,
         referenceNo: editingTransaction.referenceNo || '',
         direction: (editingTransaction.cashIn || editingTransaction.goldIn || editingTransaction.silverIn || editingTransaction.copperIn) ? 'IN' : 'OUT',
+        goldDirection: (editingTransaction.goldIn || editingTransaction.silverIn || editingTransaction.copperIn) ? 'IN' : 'OUT',
         impureWeight: editingTransaction.impureWeight || 0,
         point: editingTransaction.point || 0,
         karat: editingTransaction.karat || 24,
@@ -596,11 +599,16 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
       if (!targetCustomer) { setRefError("Selected ledger could not be found."); return; }
 
       const transferId = `TRF-${Date.now()}`;
-      const isPayingOut = formData.direction === 'OUT';
-      const sourceId = isPayingOut ? customer.id : targetCustomer.id;
-      const sourceName = isPayingOut ? customer.name : targetCustomer.name;
-      const destId = isPayingOut ? targetCustomer.id : customer.id;
-      const destName = isPayingOut ? targetCustomer.name : customer.name;
+      const isCashPayingOut = formData.direction === 'OUT';
+      const cashSourceId = isCashPayingOut ? customer.id : targetCustomer.id;
+      const cashSourceName = isCashPayingOut ? customer.name : targetCustomer.name;
+      const cashDestId = isCashPayingOut ? targetCustomer.id : customer.id;
+      const cashDestName = isCashPayingOut ? targetCustomer.name : customer.name;
+      const isGoldPayingOut = formData.goldDirection === 'OUT';
+      const goldSourceId = isGoldPayingOut ? customer.id : targetCustomer.id;
+      const goldSourceName = isGoldPayingOut ? customer.name : targetCustomer.name;
+      const goldDestId = isGoldPayingOut ? targetCustomer.id : customer.id;
+      const goldDestName = isGoldPayingOut ? targetCustomer.name : customer.name;
       const noteSuffix = formData.remarks ? ` - ${formData.remarks}` : '';
       const transferTimestamp = new Date().toISOString();
 
@@ -609,24 +617,24 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
       if (wantsGold) {
         txsToAdd.push({
           id: `${transferId}-GOLD-OUT`,
-          customerId: sourceId,
+          customerId: goldSourceId,
           date: formData.date,
           type: TransactionType.GOLD_SETTLEMENT,
           goldIn: formData.weight,
           goldOut: 0,
           referenceNo: transferId,
-          remarks: `Gold Ledger Transfer: Paid to ${destName} (Ref: ${transferId})${noteSuffix}`,
+          remarks: `Gold Ledger Transfer: Paid to ${goldDestName} (Ref: ${transferId})${noteSuffix}`,
           createdAt: transferTimestamp,
         });
         txsToAdd.push({
           id: `${transferId}-GOLD-IN`,
-          customerId: destId,
+          customerId: goldDestId,
           date: formData.date,
           type: TransactionType.GOLD_SETTLEMENT,
           goldIn: 0,
           goldOut: formData.weight,
           referenceNo: transferId,
-          remarks: `Gold Ledger Transfer: Received from ${sourceName} (Ref: ${transferId})${noteSuffix}`,
+          remarks: `Gold Ledger Transfer: Received from ${goldSourceName} (Ref: ${transferId})${noteSuffix}`,
           createdAt: transferTimestamp,
         });
       }
@@ -634,26 +642,26 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
       if (wantsCash) {
         txsToAdd.push({
           id: `${transferId}-CASH-OUT`,
-          customerId: sourceId,
+          customerId: cashSourceId,
           date: formData.date,
           type: TransactionType.CASH_PAYMENT,
           cashIn: formData.amount,
           cashOut: 0,
           paymentMethod: PaymentMethod.CASH,
           referenceNo: transferId,
-          remarks: `Ledger Transfer: Paid to ${destName} (Ref: ${transferId})${noteSuffix}`,
+          remarks: `Ledger Transfer: Paid to ${cashDestName} (Ref: ${transferId})${noteSuffix}`,
           createdAt: transferTimestamp,
         });
         txsToAdd.push({
           id: `${transferId}-CASH-IN`,
-          customerId: destId,
+          customerId: cashDestId,
           date: formData.date,
           type: TransactionType.CASH_PAYMENT,
           cashIn: 0,
           cashOut: formData.amount,
           paymentMethod: PaymentMethod.CASH,
           referenceNo: transferId,
-          remarks: `Ledger Transfer: Received from ${sourceName} (Ref: ${transferId})${noteSuffix}`,
+          remarks: `Ledger Transfer: Received from ${cashSourceName} (Ref: ${transferId})${noteSuffix}`,
           createdAt: transferTimestamp,
         });
       }
@@ -1464,14 +1472,6 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
                       </div>
                     </div>
 
-                    <div>
-                      <label className="block text-[8px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest mb-1">Direction</label>
-                      <div className="flex bg-gray-100 dark:bg-slate-800 p-1 rounded-lg border border-gray-200 dark:border-slate-700">
-                        <button type="button" onClick={() => setFormData({...formData, direction: 'OUT'})} className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-md font-black uppercase text-[8px] transition-all ${formData.direction === 'OUT' ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-400 dark:text-slate-500 hover:text-gray-500 dark:hover:text-slate-300'}`}><ArrowUpRight size={12} />Pay To Selected Ledger</button>
-                        <button type="button" onClick={() => setFormData({...formData, direction: 'IN'})} className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-md font-black uppercase text-[8px] transition-all ${formData.direction === 'IN' ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-400 dark:text-slate-500 hover:text-gray-500 dark:hover:text-slate-300'}`}><ArrowDownLeft size={12} />Receive From Selected Ledger</button>
-                      </div>
-                    </div>
-
                     {goldTransferEnabled && (
                       <div className="p-4 bg-amber-50/40 dark:bg-slate-800 rounded-xl border border-amber-100 dark:border-slate-700 space-y-4 shadow-sm">
                          <div className="flex justify-between items-center">
@@ -1485,6 +1485,13 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
                                <button type="button" onClick={() => handleSettleModeToggle('POINT')} className={`px-2 py-1 rounded-md text-[10px] font-semibold transition-all ${settleMode === 'POINT' ? 'bg-amber-600 text-white' : 'text-amber-500 dark:text-amber-500'}`}>Points</button>
                                <button type="button" onClick={() => handleSettleModeToggle('KARAT')} className={`px-2 py-1 rounded-md text-[10px] font-semibold transition-all ${settleMode === 'KARAT' ? 'bg-amber-600 text-white' : 'text-amber-500 dark:text-amber-500'}`}>Karat</button>
                              </div>
+                           </div>
+                         </div>
+                         <div>
+                           <label className="block text-[8px] font-black text-amber-500 dark:text-amber-500/80 uppercase tracking-widest mb-1">Gold Direction</label>
+                           <div className="flex bg-white dark:bg-slate-900 p-1 rounded-lg border border-amber-200 dark:border-amber-900 shadow-inner">
+                             <button type="button" onClick={() => setFormData({...formData, goldDirection: 'OUT'})} className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-md font-black uppercase text-[8px] transition-all ${formData.goldDirection === 'OUT' ? 'bg-amber-500 text-white shadow-sm' : 'text-gray-400 dark:text-slate-500 hover:text-gray-500 dark:hover:text-slate-300'}`}><ArrowUpRight size={12} />Pay To Selected Ledger</button>
+                             <button type="button" onClick={() => setFormData({...formData, goldDirection: 'IN'})} className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-md font-black uppercase text-[8px] transition-all ${formData.goldDirection === 'IN' ? 'bg-amber-500 text-white shadow-sm' : 'text-gray-400 dark:text-slate-500 hover:text-gray-500 dark:hover:text-slate-300'}`}><ArrowDownLeft size={12} />Receive From Selected Ledger</button>
                            </div>
                          </div>
                          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -1507,18 +1514,39 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
                     )}
 
                     {cashTransferEnabled && (
-                      <div className="relative">
-                          <input required className="w-full p-5 border-2 border-purple-100 dark:border-purple-900 bg-purple-50/20 dark:bg-purple-950/20 rounded-2xl font-bold text-3xl text-purple-900 dark:text-purple-300 shadow-inner focus:ring-1 focus:ring-purple-500 outline-none placeholder:text-purple-200 dark:placeholder:text-purple-900" type="text" value={amountInput} onChange={e => { setAmountInput(e.target.value); setFormData({...formData, amount: evaluateMath(e.target.value)}); }} placeholder="0.00" />
-                          <div className="absolute right-5 top-1/2 -translate-y-1/2 text-purple-200 dark:text-purple-900 font-semibold text-sm">PKR</div>
+                      <div className="space-y-3">
+                         <div>
+                           <label className="block text-[8px] font-black text-purple-500 dark:text-purple-400 uppercase tracking-widest mb-1">Cash Direction</label>
+                           <div className="flex bg-gray-100 dark:bg-slate-800 p-1 rounded-lg border border-gray-200 dark:border-slate-700">
+                             <button type="button" onClick={() => setFormData({...formData, direction: 'OUT'})} className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-md font-black uppercase text-[8px] transition-all ${formData.direction === 'OUT' ? 'bg-purple-600 text-white shadow-sm' : 'text-gray-400 dark:text-slate-500 hover:text-gray-500 dark:hover:text-slate-300'}`}><ArrowUpRight size={12} />Pay To Selected Ledger</button>
+                             <button type="button" onClick={() => setFormData({...formData, direction: 'IN'})} className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-md font-black uppercase text-[8px] transition-all ${formData.direction === 'IN' ? 'bg-purple-600 text-white shadow-sm' : 'text-gray-400 dark:text-slate-500 hover:text-gray-500 dark:hover:text-slate-300'}`}><ArrowDownLeft size={12} />Receive From Selected Ledger</button>
+                           </div>
+                         </div>
+                         <div className="relative">
+                             <input required className="w-full p-5 border-2 border-purple-100 dark:border-purple-900 bg-purple-50/20 dark:bg-purple-950/20 rounded-2xl font-bold text-3xl text-purple-900 dark:text-purple-300 shadow-inner focus:ring-1 focus:ring-purple-500 outline-none placeholder:text-purple-200 dark:placeholder:text-purple-900" type="text" value={amountInput} onChange={e => { setAmountInput(e.target.value); setFormData({...formData, amount: evaluateMath(e.target.value)}); }} placeholder="0.00" />
+                             <div className="absolute right-5 top-1/2 -translate-y-1/2 text-purple-200 dark:text-purple-900 font-semibold text-sm">PKR</div>
+                         </div>
                       </div>
                     )}
 
                     {formData.transferCustomerId && ((goldTransferEnabled && formData.weight > 0) || (cashTransferEnabled && formData.amount > 0)) && (
-                      <div className="p-3 bg-gray-50 dark:bg-slate-800 rounded-xl text-xs font-semibold text-gray-600 dark:text-slate-300 text-center">
-                        {[cashTransferEnabled && formData.amount > 0 ? `Rs. ${formData.amount.toLocaleString()}` : null, goldTransferEnabled && formData.weight > 0 ? `${formData.weight.toLocaleString()}g Gold` : null].filter(Boolean).join(' + ')} will move from{' '}
-                        <span className="text-rose-600 dark:text-rose-400">{formData.direction === 'OUT' ? customer.name : (transferTargets.find(c => c.id === formData.transferCustomerId)?.name || '')}</span>
-                        {' '}to{' '}
-                        <span className="text-green-600 dark:text-green-400">{formData.direction === 'OUT' ? (transferTargets.find(c => c.id === formData.transferCustomerId)?.name || '') : customer.name}</span>
+                      <div className="p-3 bg-gray-50 dark:bg-slate-800 rounded-xl text-xs font-semibold text-gray-600 dark:text-slate-300 text-center space-y-1">
+                        {cashTransferEnabled && formData.amount > 0 && (
+                          <div>
+                            Rs. {formData.amount.toLocaleString()} will move from{' '}
+                            <span className="text-rose-600 dark:text-rose-400">{formData.direction === 'OUT' ? customer.name : (transferTargets.find(c => c.id === formData.transferCustomerId)?.name || '')}</span>
+                            {' '}to{' '}
+                            <span className="text-green-600 dark:text-green-400">{formData.direction === 'OUT' ? (transferTargets.find(c => c.id === formData.transferCustomerId)?.name || '') : customer.name}</span>
+                          </div>
+                        )}
+                        {goldTransferEnabled && formData.weight > 0 && (
+                          <div>
+                            {formData.weight.toLocaleString()}g Gold will move from{' '}
+                            <span className="text-rose-600 dark:text-rose-400">{formData.goldDirection === 'OUT' ? customer.name : (transferTargets.find(c => c.id === formData.transferCustomerId)?.name || '')}</span>
+                            {' '}to{' '}
+                            <span className="text-green-600 dark:text-green-400">{formData.goldDirection === 'OUT' ? (transferTargets.find(c => c.id === formData.transferCustomerId)?.name || '') : customer.name}</span>
+                          </div>
+                        )}
                       </div>
                     )}
                  </div>
