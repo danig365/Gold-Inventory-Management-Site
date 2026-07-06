@@ -1115,37 +1115,37 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
                         <div className="text-xs text-gray-500 dark:text-slate-400 italic mt-0.5">{t.remarks}</div>
                       )}
                     </td>
-                    <td className="px-3 py-2 text-right font-medium text-gray-700 dark:text-slate-400 border-r border-gray-300 dark:border-slate-800">{t.impureWeight?.toFixed(2) || '-'}</td>
-                    <td className="px-3 py-2 text-right font-medium text-gray-700 dark:text-slate-400 border-r border-gray-300 dark:border-slate-800">
+                    <td className="px-3 py-2 text-right font-medium text-gray-700 dark:text-slate-400 border-r border-gray-300 dark:border-slate-800 whitespace-nowrap">{t.impureWeight?.toFixed(2) || '-'}</td>
+                    <td className="px-3 py-2 text-right font-medium text-gray-700 dark:text-slate-400 border-r border-gray-300 dark:border-slate-800 whitespace-nowrap">
                       {t.point ? `${t.point} (P)` : (t.karat ? `${t.karat} (K)` : '-')}
                     </td>
-                    <td className="px-3 py-2 text-right font-bold border-r border-gray-300 dark:border-slate-800">
+                    <td className="px-3 py-2 text-right font-bold border-r border-gray-300 dark:border-slate-800 whitespace-nowrap">
                       <span className={(t.type.includes('BUY') || t.goldIn || t.silverIn || t.copperIn) ? 'text-green-700 dark:text-green-400' : 'text-rose-700 dark:text-rose-400'}>
                         {(t.goldWeight || t.goldIn || t.goldOut || t.silverWeight || t.silverIn || t.silverOut || t.copperWeight || t.copperIn || t.copperOut || 0).toFixed(3)}
                       </span>
                     </td>
-                    <td className="px-3 py-2 text-right font-medium text-gray-700 dark:text-slate-400 border-r border-gray-300 dark:border-slate-800">{((t.rateMode || 'TOLA') === 'GRAM' ? (t.rate || 0) : (t.rate || 0) * TOLA_WEIGHT).toLocaleString(undefined, { maximumFractionDigits: 2 })}</td>
-                    <td className="px-3 py-2 text-right font-bold text-green-700 dark:text-green-400 border-r border-gray-300 dark:border-slate-800">{t.cashIn ? t.cashIn.toLocaleString() : (t.type.includes('SELL') ? t.tradeValue?.toLocaleString() : '-')}</td>
-                    <td className="px-3 py-2 text-right font-bold text-rose-700 dark:text-rose-400 border-r border-gray-300 dark:border-slate-800">{t.cashOut ? t.cashOut.toLocaleString() : (t.type.includes('BUY') ? t.tradeValue?.toLocaleString() : '-')}</td>
-                    <td className="px-3 py-2 text-right font-semibold text-indigo-900 dark:text-indigo-400 border-r border-gray-300 dark:border-slate-800">
+                    <td className="px-3 py-2 text-right font-medium text-gray-700 dark:text-slate-400 border-r border-gray-300 dark:border-slate-800 whitespace-nowrap">{((t.rateMode || 'TOLA') === 'GRAM' ? (t.rate || 0) : (t.rate || 0) * TOLA_WEIGHT).toLocaleString(undefined, { maximumFractionDigits: 2 })}</td>
+                    <td className="px-3 py-2 text-right font-bold text-green-700 dark:text-green-400 border-r border-gray-300 dark:border-slate-800 whitespace-nowrap">{t.cashIn ? t.cashIn.toLocaleString() : (t.type.includes('SELL') ? t.tradeValue?.toLocaleString() : '-')}</td>
+                    <td className="px-3 py-2 text-right font-bold text-rose-700 dark:text-rose-400 border-r border-gray-300 dark:border-slate-800 whitespace-nowrap">{t.cashOut ? t.cashOut.toLocaleString() : (t.type.includes('BUY') ? t.tradeValue?.toLocaleString() : '-')}</td>
+                    <td className="px-3 py-2 text-right font-semibold text-indigo-900 dark:text-indigo-400 border-r border-gray-300 dark:border-slate-800 whitespace-nowrap">
                       {Math.abs(t.remainingCash).toLocaleString()}
                       <span className={`text-[8px] ml-1 font-bold ${t.remainingCash >= 0 ? 'text-green-700 dark:text-green-400' : 'text-rose-700 dark:text-rose-400'}`}>
                         {t.remainingCash >= 0 ? 'LAINE' : 'DAINE'}
                       </span>
                     </td>
-                    <td className="px-3 py-2 text-right font-semibold text-yellow-700 dark:text-yellow-400 border-r border-gray-300 dark:border-slate-800">
+                    <td className="px-3 py-2 text-right font-semibold text-yellow-700 dark:text-yellow-400 border-r border-gray-300 dark:border-slate-800 whitespace-nowrap">
                       {Math.abs(t.remainingGold).toFixed(3)}
                       <span className={`text-[8px] ml-1 font-bold ${t.remainingGold >= 0 ? 'text-green-700 dark:text-green-400' : 'text-rose-700 dark:text-rose-400'}`}>
                         {t.remainingGold >= 0 ? 'LAINE' : 'DAINE'}
                       </span>
                     </td>
-                    <td className="px-3 py-2 text-right font-semibold text-slate-700 dark:text-slate-400 border-r border-gray-300 dark:border-slate-800">
+                    <td className="px-3 py-2 text-right font-semibold text-slate-700 dark:text-slate-400 border-r border-gray-300 dark:border-slate-800 whitespace-nowrap">
                       {Math.abs(t.remainingSilver).toFixed(2)}
                       <span className={`text-[8px] ml-1 font-bold ${t.remainingSilver >= 0 ? 'text-green-700 dark:text-green-400' : 'text-rose-700 dark:text-rose-400'}`}>
                         {t.remainingSilver >= 0 ? 'LAINE' : 'DAINE'}
                       </span>
                     </td>
-                    <td className="px-3 py-2 text-right font-semibold text-amber-700 dark:text-amber-400 border-r border-gray-300 dark:border-slate-800">
+                    <td className="px-3 py-2 text-right font-semibold text-amber-700 dark:text-amber-400 border-r border-gray-300 dark:border-slate-800 whitespace-nowrap">
                       {Math.abs(t.remainingCopper).toFixed(2)}
                       <span className={`text-[8px] ml-1 font-bold ${t.remainingCopper >= 0 ? 'text-green-700 dark:text-green-400' : 'text-rose-700 dark:text-rose-400'}`}>
                         {t.remainingCopper >= 0 ? 'LAINE' : 'DAINE'}
