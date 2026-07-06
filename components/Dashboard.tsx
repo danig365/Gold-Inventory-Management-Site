@@ -18,12 +18,13 @@ interface DashboardProps {
   shopPhone: string;
   metalFilter: 'ALL' | 'GOLD' | 'SILVER' | 'COPPER';
   onMetalFilterChange: (filter: 'ALL' | 'GOLD' | 'SILVER' | 'COPPER') => void;
+  hideCopper?: boolean;
 }
 
 const DRAFT_CUSTOMER_KEY = 'haroon_draft_customer';
 const DESKTOP_SHARE_HINT_KEY = 'newjehlum_whatsapp_desktop_hint_seen';
 
-const Dashboard: React.FC<DashboardProps> = ({ customers, transactions, banks, onSelectCustomer, onAddCustomer, onUpdateCustomer, onDeleteCustomer, projectName, shopPhone, metalFilter, onMetalFilterChange: setMetalFilter }) => {
+const Dashboard: React.FC<DashboardProps> = ({ customers, transactions, banks, onSelectCustomer, onAddCustomer, onUpdateCustomer, onDeleteCustomer, projectName, shopPhone, metalFilter, onMetalFilterChange: setMetalFilter, hideCopper = false }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [sortMode, setSortMode] = useState<'CREATED' | 'BALANCE_FIRST'>('CREATED');
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -433,24 +434,28 @@ const Dashboard: React.FC<DashboardProps> = ({ customers, transactions, banks, o
           </div>
         </div>
 
-        <div className="w-px h-8 bg-gray-100 dark:bg-slate-800 hidden sm:block"></div>
+        {!hideCopper && (
+          <>
+            <div className="w-px h-8 bg-gray-100 dark:bg-slate-800 hidden sm:block"></div>
 
-        <div className="flex items-center space-x-3">
-          <div className="p-2.5 bg-amber-50 dark:bg-slate-800 rounded-xl text-amber-700 dark:text-amber-500">
-            <Coins size={20} />
-          </div>
-          <div>
-            <p className="text-xs font-semibold tracking-wide text-gray-500 dark:text-slate-400 leading-none mb-1">Copper Ledger</p>
-            <p className="text-base font-bold text-gray-900 dark:text-slate-100 leading-none">
-              {Math.abs(totals.copper).toFixed(2)}g
-            </p>
-          </div>
-        </div>
+            <div className="flex items-center space-x-3">
+              <div className="p-2.5 bg-amber-50 dark:bg-slate-800 rounded-xl text-amber-700 dark:text-amber-500">
+                <Coins size={20} />
+              </div>
+              <div>
+                <p className="text-xs font-semibold tracking-wide text-gray-500 dark:text-slate-400 leading-none mb-1">Copper Ledger</p>
+                <p className="text-base font-bold text-gray-900 dark:text-slate-100 leading-none">
+                  {Math.abs(totals.copper).toFixed(2)}g
+                </p>
+              </div>
+            </div>
+          </>
+        )}
       </div>
 
       <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-2xl p-4">
         <p className="text-xs font-semibold text-gray-500 dark:text-slate-400 mb-3 tracking-wide">Select Metal Type</p>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        <div className={`grid grid-cols-2 ${hideCopper ? 'sm:grid-cols-3' : 'sm:grid-cols-4'} gap-2`}>
           <button
             type="button"
             onClick={() => setMetalFilter('ALL')}
@@ -475,14 +480,16 @@ const Dashboard: React.FC<DashboardProps> = ({ customers, transactions, banks, o
             <div className="text-sm font-semibold text-gray-900 dark:text-slate-100">Silver</div>
             <div className="text-xs text-gray-500 dark:text-slate-400">Only silver profiles</div>
           </button>
-          <button
-            type="button"
-            onClick={() => setMetalFilter('COPPER')}
-            className={`p-3 rounded-xl border text-left transition-all ${metalFilter === 'COPPER' ? 'border-amber-500 bg-amber-50 dark:bg-amber-900/20' : 'border-gray-200 dark:border-slate-800 hover:border-amber-300'}`}
-          >
-            <div className="text-sm font-semibold text-gray-900 dark:text-slate-100">Copper</div>
-            <div className="text-xs text-gray-500 dark:text-slate-400">Only copper profiles</div>
-          </button>
+          {!hideCopper && (
+            <button
+              type="button"
+              onClick={() => setMetalFilter('COPPER')}
+              className={`p-3 rounded-xl border text-left transition-all ${metalFilter === 'COPPER' ? 'border-amber-500 bg-amber-50 dark:bg-amber-900/20' : 'border-gray-200 dark:border-slate-800 hover:border-amber-300'}`}
+            >
+              <div className="text-sm font-semibold text-gray-900 dark:text-slate-100">Copper</div>
+              <div className="text-xs text-gray-500 dark:text-slate-400">Only copper profiles</div>
+            </button>
+          )}
         </div>
       </div>
 

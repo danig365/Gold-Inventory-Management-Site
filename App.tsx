@@ -331,6 +331,7 @@ const App: React.FC = () => {
             shopPhone={currentUser.phone || ''}
             metalFilter={dashboardMetalFilter}
             onMetalFilterChange={setDashboardMetalFilter}
+            hideCopper={currentUser.id === 'u_haroon'}
           />
         ) : currentView.type === 'report' ? (
           <MonthlyReport 
