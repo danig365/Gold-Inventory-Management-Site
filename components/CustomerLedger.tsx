@@ -813,7 +813,7 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
       return mode === 'GRAM' ? (t.rate || 0) : (t.rate || 0) * TOLA_WEIGHT;
     };
 
-    const doc = new jsPDF();
+    const doc = new jsPDF('l', 'mm', 'a4');
     doc.setFontSize(22);
     doc.setTextColor(30, 41, 59);
     doc.setFont('helvetica', 'bold');
@@ -854,8 +854,23 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
       body: tableRows,
       theme: 'grid',
       headStyles: { fillColor: [67, 56, 202] },
-      styles: { fontSize: 7 },
-      columnStyles: { 2: { cellWidth: 32 } },
+      styles: { fontSize: 7, overflow: 'linebreak' },
+      margin: { left: 8, right: 8 },
+      columnStyles: {
+        0: { cellWidth: 8 },
+        1: { cellWidth: 16 },
+        2: { cellWidth: 40 },
+        3: { cellWidth: 18 },
+        4: { cellWidth: 20 },
+        5: { cellWidth: 16 },
+        6: { cellWidth: 18 },
+        7: { cellWidth: 22 },
+        8: { cellWidth: 22 },
+        9: { cellWidth: 24 },
+        10: { cellWidth: 16 },
+        11: { cellWidth: 16 },
+        12: { cellWidth: 16 },
+      },
     });
 
     const finalY = (doc as any).lastAutoTable.finalY + 15;
