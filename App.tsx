@@ -383,6 +383,7 @@ const App: React.FC = () => {
               projectName={currentUser.projectName}
               shopPhone={currentUser.phone || ''}
               metalFilter={currentView.metalFilter || 'ALL'}
+              hideCopper={currentUser.id === 'u_haroon'}
             />
           )
         )}

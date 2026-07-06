@@ -45,6 +45,7 @@ interface CustomerLedgerProps {
   projectName: string;
   shopPhone: string;
   metalFilter?: 'ALL' | 'GOLD' | 'SILVER' | 'COPPER';
+  hideCopper?: boolean;
 }
 
 type TransactionFormData = {
@@ -82,10 +83,11 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
   projectName,
   shopPhone,
   metalFilter = 'ALL',
+  hideCopper = false,
 }) => {
   const showGold = metalFilter === 'ALL' || metalFilter === 'GOLD';
   const showSilver = metalFilter === 'ALL' || metalFilter === 'SILVER';
-  const showCopper = metalFilter === 'ALL' || metalFilter === 'COPPER';
+  const showCopper = !hideCopper && (metalFilter === 'ALL' || metalFilter === 'COPPER');
   const [isTxModalOpen, setIsTxModalOpen] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
@@ -959,7 +961,7 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className={`grid grid-cols-1 md:grid-cols-2 ${hideCopper ? 'lg:grid-cols-3' : 'lg:grid-cols-4'} gap-4`}>
         <div onClick={() => toggleBalanceFilter('CASH')} title="Click to show only cash-related transactions" className={`cursor-pointer rounded-3xl p-5 shadow-sm border-2 flex items-center space-x-4 transition-all duration-300 ${balanceFilter === 'CASH' ? 'ring-2 ring-offset-2 ring-blue-500 dark:ring-offset-slate-950' : ''} ${totals.cash >= 0 ? 'bg-blue-50/50 dark:bg-blue-900/10 border-blue-200 dark:border-blue-900/50 shadow-blue-50' : 'bg-rose-50 dark:bg-rose-900/10 border-rose-200 dark:border-rose-900/50 shadow-rose-50'}`}>
           <div className={`p-3 rounded-2xl ${totals.cash >= 0 ? 'bg-blue-600 text-white' : 'bg-rose-600 text-white'}`}>
             <Banknote size={24} />
@@ -1005,20 +1007,22 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
           </div>
         </div>
 
-        <div onClick={() => toggleBalanceFilter('COPPER')} title="Click to show only copper-related transactions" className={`cursor-pointer rounded-3xl p-5 shadow-sm border-2 flex items-center space-x-4 transition-all duration-300 ${balanceFilter === 'COPPER' ? 'ring-2 ring-offset-2 ring-amber-600 dark:ring-offset-slate-950' : ''} ${totals.copper >= 0 ? 'bg-amber-50/50 dark:bg-amber-900/10 border-amber-300 dark:border-amber-900/50 shadow-amber-50' : 'bg-rose-50 dark:bg-rose-900/10 border-rose-200 dark:border-rose-900/50 shadow-rose-50'}`}>
-          <div className={`p-3 rounded-2xl ${totals.copper >= 0 ? 'bg-amber-700 text-white' : 'bg-rose-600 text-white'}`}>
-            <Weight size={24} />
-          </div>
-          <div className="flex-grow">
-            <p className="text-xs font-semibold text-gray-500 dark:text-slate-400 tracking-wide leading-none mb-1">Copper Balance</p>
-            <div className="flex justify-between items-end">
-              <h4 className={`text-3xl font-bold leading-none ${totals.copper >= 0 ? 'text-amber-900 dark:text-amber-400' : 'text-rose-900 dark:text-rose-400'}`}>{Math.abs(totals.copper).toFixed(2)}g</h4>
-              <span className={`text-xs font-semibold px-2 py-1 rounded-md ${totals.copper >= 0 ? 'bg-amber-200 dark:bg-amber-900/50 text-amber-800 dark:text-amber-300' : 'bg-rose-200 dark:bg-rose-900/50 text-rose-800 dark:text-rose-300'}`}>
-                {totals.copper >= 0 ? 'Laina hai' : 'Daina hai'}
-              </span>
+        {!hideCopper && (
+          <div onClick={() => toggleBalanceFilter('COPPER')} title="Click to show only copper-related transactions" className={`cursor-pointer rounded-3xl p-5 shadow-sm border-2 flex items-center space-x-4 transition-all duration-300 ${balanceFilter === 'COPPER' ? 'ring-2 ring-offset-2 ring-amber-600 dark:ring-offset-slate-950' : ''} ${totals.copper >= 0 ? 'bg-amber-50/50 dark:bg-amber-900/10 border-amber-300 dark:border-amber-900/50 shadow-amber-50' : 'bg-rose-50 dark:bg-rose-900/10 border-rose-200 dark:border-rose-900/50 shadow-rose-50'}`}>
+            <div className={`p-3 rounded-2xl ${totals.copper >= 0 ? 'bg-amber-700 text-white' : 'bg-rose-600 text-white'}`}>
+              <Weight size={24} />
+            </div>
+            <div className="flex-grow">
+              <p className="text-xs font-semibold text-gray-500 dark:text-slate-400 tracking-wide leading-none mb-1">Copper Balance</p>
+              <div className="flex justify-between items-end">
+                <h4 className={`text-3xl font-bold leading-none ${totals.copper >= 0 ? 'text-amber-900 dark:text-amber-400' : 'text-rose-900 dark:text-rose-400'}`}>{Math.abs(totals.copper).toFixed(2)}g</h4>
+                <span className={`text-xs font-semibold px-2 py-1 rounded-md ${totals.copper >= 0 ? 'bg-amber-200 dark:bg-amber-900/50 text-amber-800 dark:text-amber-300' : 'bg-rose-200 dark:bg-rose-900/50 text-rose-800 dark:text-rose-300'}`}>
+                  {totals.copper >= 0 ? 'Laina hai' : 'Daina hai'}
+                </span>
+              </div>
             </div>
           </div>
-        </div>
+        )}
       </div>
 
       <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-gray-200 dark:border-slate-800 overflow-hidden transition-colors duration-300">
@@ -1110,13 +1114,13 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
                 <th className="px-3 py-4 text-right border border-gray-300 dark:border-slate-700">Cash Balance (Rs)</th>
                 <th className="px-3 py-4 text-right border border-gray-300 dark:border-slate-700">Gold Bal (g)</th>
                 <th className="px-3 py-4 text-right border border-gray-300 dark:border-slate-700">Silver Bal (g)</th>
-                <th className="px-3 py-4 text-right border border-gray-300 dark:border-slate-700">Copper Bal (g)</th>
+                {!hideCopper && <th className="px-3 py-4 text-right border border-gray-300 dark:border-slate-700">Copper Bal (g)</th>}
                 <th className="px-3 py-4 text-center border border-gray-300 dark:border-slate-700">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-300 dark:divide-slate-800">
               {tableDisplayData.length === 0 ? (
-                <tr><td colSpan={15} className="px-4 py-12 text-center text-gray-400 dark:text-slate-600 font-medium border border-gray-300 dark:border-slate-800 transition-colors">No transactions recorded</td></tr>
+                <tr><td colSpan={hideCopper ? 14 : 15} className="px-4 py-12 text-center text-gray-400 dark:text-slate-600 font-medium border border-gray-300 dark:border-slate-800 transition-colors">No transactions recorded</td></tr>
               ) : (
                 tableDisplayData.map((t, index) => (
                   <tr key={t.id} className={`transition-colors group border-b border-gray-300 dark:border-slate-800 ${starredIds.has(t.id) ? 'ring-1 ring-yellow-300 dark:ring-yellow-700 bg-yellow-50 dark:bg-yellow-950/20' : ''} ${usePlainTable ? 'bg-white dark:bg-slate-900 hover:bg-gray-50 dark:hover:bg-slate-800' : (index % 2 === 0 ? 'bg-[#CAF0F8] dark:bg-indigo-950/40' : 'bg-[#90E0EF] dark:bg-indigo-900/20')}`}>
@@ -1168,12 +1172,14 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
                         {t.remainingSilver >= 0 ? 'LAINE' : 'DAINE'}
                       </span>
                     </td>
-                    <td className="px-3 py-2 text-right font-semibold text-amber-700 dark:text-amber-400 border-r border-gray-300 dark:border-slate-800 whitespace-nowrap">
-                      {Math.abs(t.remainingCopper).toFixed(2)}
-                      <span className={`text-[8px] ml-1 font-bold ${t.remainingCopper >= 0 ? 'text-green-700 dark:text-green-400' : 'text-rose-700 dark:text-rose-400'}`}>
-                        {t.remainingCopper >= 0 ? 'LAINE' : 'DAINE'}
-                      </span>
-                    </td>
+                    {!hideCopper && (
+                      <td className="px-3 py-2 text-right font-semibold text-amber-700 dark:text-amber-400 border-r border-gray-300 dark:border-slate-800 whitespace-nowrap">
+                        {Math.abs(t.remainingCopper).toFixed(2)}
+                        <span className={`text-[8px] ml-1 font-bold ${t.remainingCopper >= 0 ? 'text-green-700 dark:text-green-400' : 'text-rose-700 dark:text-rose-400'}`}>
+                          {t.remainingCopper >= 0 ? 'LAINE' : 'DAINE'}
+                        </span>
+                      </td>
+                    )}
                     <td className="px-3 py-2 text-center transition-colors">
                       <div className="flex justify-center items-center space-x-1">
                         {t.attachmentId && (
@@ -1214,7 +1220,7 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
                 { id: TransactionType.GOLD_SETTLEMENT, label: 'Gold Settle', c: 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400' },
                 { id: TransactionType.SILVER_SETTLEMENT, label: 'Silver Settle', c: 'bg-slate-100 dark:bg-slate-700/30 text-slate-700 dark:text-slate-400' },
                 { id: TransactionType.COPPER_SETTLEMENT, label: 'Copper Settle', c: 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400' }
-              ].filter(tab => !visibleTabTypes || visibleTabTypes.has(tab.id)).map(tab => (
+              ].filter(tab => (!visibleTabTypes || visibleTabTypes.has(tab.id)) && !(hideCopper && [TransactionType.BUY_COPPER, TransactionType.SELL_COPPER, TransactionType.COPPER_SETTLEMENT].includes(tab.id))).map(tab => (
                 <button key={tab.id} onClick={() => handleTabChange(tab.id)} className={`min-h-11 px-2.5 py-2.5 rounded-xl border transition-all font-semibold text-[10px] leading-tight flex flex-col items-center justify-center gap-1 ${activeForm === tab.id ? `${tab.c} border-indigo-500 shadow-sm` : 'border-gray-100 dark:border-slate-800 text-gray-500 dark:text-slate-500 hover:border-gray-300 dark:hover:border-slate-600'}`}>{tab.label}</button>
               ))}
             </div>
