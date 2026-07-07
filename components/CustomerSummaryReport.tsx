@@ -12,9 +12,10 @@ interface CustomerSummaryReportProps {
   banks: Bank[];
   projectName: string;
   shopPhone: string;
+  hideCopper?: boolean;
 }
 
-const CustomerSummaryReport: React.FC<CustomerSummaryReportProps> = ({ customers, transactions, banks, projectName, shopPhone }) => {
+const CustomerSummaryReport: React.FC<CustomerSummaryReportProps> = ({ customers, transactions, banks, projectName, shopPhone, hideCopper = false }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
@@ -162,11 +163,10 @@ const CustomerSummaryReport: React.FC<CustomerSummaryReportProps> = ({ customers
       'Gold Status': c.goldBal >= 0 ? 'Gold laina hai' : 'Gold daina hai',
       'Silver Balance (g)': Math.abs(c.silverBal).toFixed(2),
       'Silver Status': c.silverBal >= 0 ? 'Silver laina hai' : 'Silver daina hai',
-      'Copper Balance (g)': Math.abs(c.copperBal).toFixed(2),
-      'Copper Status': c.copperBal >= 0 ? 'Copper laina hai' : 'Copper daina hai',
+      ...(hideCopper ? {} : { 'Copper Balance (g)': Math.abs(c.copperBal).toFixed(2), 'Copper Status': c.copperBal >= 0 ? 'Copper laina hai' : 'Copper daina hai' }),
       'Net Gold': c.goldBal.toFixed(3),
       'Net Silver': c.silverBal.toFixed(2),
-      'Net Copper': c.copperBal.toFixed(2),
+      ...(hideCopper ? {} : { 'Net Copper': c.copperBal.toFixed(2) }),
       'Net Cash Balance': Math.round(c.cashBal)
     }));
     data.push({
@@ -178,11 +178,10 @@ const CustomerSummaryReport: React.FC<CustomerSummaryReportProps> = ({ customers
       'Gold Status': totals.gold >= 0 ? 'Gold laina hai' : 'Gold daina hai',
       'Silver Balance (g)': Math.abs(totals.silver).toFixed(2),
       'Silver Status': totals.silver >= 0 ? 'Silver laina hai' : 'Silver daina hai',
-      'Copper Balance (g)': Math.abs(totals.copper).toFixed(2),
-      'Copper Status': totals.copper >= 0 ? 'Copper laina hai' : 'Copper daina hai',
+      ...(hideCopper ? {} : { 'Copper Balance (g)': Math.abs(totals.copper).toFixed(2), 'Copper Status': totals.copper >= 0 ? 'Copper laina hai' : 'Copper daina hai' }),
       'Net Gold': totals.gold.toFixed(3),
       'Net Silver': totals.silver.toFixed(2),
-      'Net Copper': totals.copper.toFixed(2),
+      ...(hideCopper ? {} : { 'Net Copper': totals.copper.toFixed(2) }),
       'Net Cash Balance': Math.round(totals.cash)
     });
     data.push({
@@ -194,11 +193,10 @@ const CustomerSummaryReport: React.FC<CustomerSummaryReportProps> = ({ customers
       'Gold Status': '',
       'Silver Balance (g)': '',
       'Silver Status': '',
-      'Copper Balance (g)': '',
-      'Copper Status': '',
+      ...(hideCopper ? {} : { 'Copper Balance (g)': '', 'Copper Status': '' }),
       'Net Gold': '',
       'Net Silver': '',
-      'Net Copper': '',
+      ...(hideCopper ? {} : { 'Net Copper': '' }),
       'Net Cash Balance': Math.round(bankCash)
     });
     const ws = XLSX.utils.json_to_sheet(data);
@@ -236,11 +234,10 @@ const CustomerSummaryReport: React.FC<CustomerSummaryReportProps> = ({ customers
         'Gold Status',
         'Silver Balance (g)',
         'Silver Status',
-        'Copper Balance (g)',
-        'Copper Status',
+        ...(hideCopper ? [] : ['Copper Balance (g)', 'Copper Status']),
         'Net Gold',
         'Net Silver',
-        'Net Copper',
+        ...(hideCopper ? [] : ['Net Copper']),
         'Net Cash Balance'
       ]],
       body: reportData.map(c => [
@@ -252,11 +249,10 @@ const CustomerSummaryReport: React.FC<CustomerSummaryReportProps> = ({ customers
         c.goldBal >= 0 ? 'LAINA' : 'DAINA',
         Math.abs(c.silverBal).toFixed(2),
         c.silverBal >= 0 ? 'LAINA' : 'DAINA',
-        Math.abs(c.copperBal).toFixed(2),
-        c.copperBal >= 0 ? 'LAINA' : 'DAINA',
+        ...(hideCopper ? [] : [Math.abs(c.copperBal).toFixed(2), c.copperBal >= 0 ? 'LAINA' : 'DAINA']),
         c.goldBal.toFixed(3),
         c.silverBal.toFixed(2),
-        c.copperBal.toFixed(2),
+        ...(hideCopper ? [] : [c.copperBal.toFixed(2)]),
         Math.round(c.cashBal).toLocaleString()
       ]),
       foot: [[
@@ -268,11 +264,10 @@ const CustomerSummaryReport: React.FC<CustomerSummaryReportProps> = ({ customers
         totals.gold >= 0 ? 'LAINA' : 'DAINA',
         Math.abs(totals.silver).toFixed(2),
         totals.silver >= 0 ? 'LAINA' : 'DAINA',
-        Math.abs(totals.copper).toFixed(2),
-        totals.copper >= 0 ? 'LAINA' : 'DAINA',
+        ...(hideCopper ? [] : [Math.abs(totals.copper).toFixed(2), totals.copper >= 0 ? 'LAINA' : 'DAINA']),
         totals.gold.toFixed(3),
         totals.silver.toFixed(2),
-        totals.copper.toFixed(2),
+        ...(hideCopper ? [] : [totals.copper.toFixed(2)]),
         Math.round(totals.cash).toLocaleString()
       ]],
       theme: 'grid',
@@ -376,7 +371,7 @@ const CustomerSummaryReport: React.FC<CustomerSummaryReportProps> = ({ customers
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+      <div className={`grid grid-cols-1 md:grid-cols-2 ${hideCopper ? 'lg:grid-cols-4' : 'lg:grid-cols-5'} gap-4`}>
         <div className={`rounded-3xl p-6 text-white shadow-xl transition-all ${totals.cash >= 0 ? 'bg-indigo-900 shadow-indigo-100' : 'bg-rose-900 shadow-rose-100'}`}>
           <div className="flex items-center space-x-3 mb-4 opacity-70">
             <Wallet size={18} />
@@ -423,17 +418,19 @@ const CustomerSummaryReport: React.FC<CustomerSummaryReportProps> = ({ customers
           </div>
         </div>
 
-        <div className={`rounded-3xl p-6 text-white shadow-xl transition-all ${totals.copper >= 0 ? 'bg-amber-700 shadow-amber-100' : 'bg-rose-600 shadow-rose-100'}`}>
-          <div className="flex items-center space-x-3 mb-4 opacity-70">
-            <Layers size={18} />
-            <p className="text-xs font-semibold tracking-wide leading-none">Copper Summary</p>
+        {!hideCopper && (
+          <div className={`rounded-3xl p-6 text-white shadow-xl transition-all ${totals.copper >= 0 ? 'bg-amber-700 shadow-amber-100' : 'bg-rose-600 shadow-rose-100'}`}>
+            <div className="flex items-center space-x-3 mb-4 opacity-70">
+              <Layers size={18} />
+              <p className="text-xs font-semibold tracking-wide leading-none">Copper Summary</p>
+            </div>
+            <div className="space-y-1.5 text-xs">
+              <div className="flex justify-between"><span>Total Buy (Lainaw)</span><span className="font-bold">{summaryBreakdown.copperBuy.toFixed(2)}g</span></div>
+              <div className="flex justify-between"><span>Total Sell (Danaw)</span><span className="font-bold">{summaryBreakdown.copperSell.toFixed(2)}g</span></div>
+              <div className="flex justify-between pt-1 border-t border-white/20"><span>Balance</span><span className="font-extrabold">{Math.abs(totals.copper).toFixed(2)}g</span></div>
+            </div>
           </div>
-          <div className="space-y-1.5 text-xs">
-            <div className="flex justify-between"><span>Total Buy (Lainaw)</span><span className="font-bold">{summaryBreakdown.copperBuy.toFixed(2)}g</span></div>
-            <div className="flex justify-between"><span>Total Sell (Danaw)</span><span className="font-bold">{summaryBreakdown.copperSell.toFixed(2)}g</span></div>
-            <div className="flex justify-between pt-1 border-t border-white/20"><span>Balance</span><span className="font-extrabold">{Math.abs(totals.copper).toFixed(2)}g</span></div>
-          </div>
-        </div>
+        )}
       </div>
 
       <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-sm border border-gray-200 dark:border-slate-800 overflow-hidden">
@@ -444,14 +441,14 @@ const CustomerSummaryReport: React.FC<CustomerSummaryReportProps> = ({ customers
                 <th className="px-6 py-4 text-left">Customer Information</th>
                 <th className="px-6 py-4 text-right">Gold Bal (g)</th>
                 <th className="px-6 py-4 text-right">Silver Bal (g)</th>
-                <th className="px-6 py-4 text-right">Copper Bal (g)</th>
+                {!hideCopper && <th className="px-6 py-4 text-right">Copper Bal (g)</th>}
                 <th className="px-6 py-4 text-right">Cash Balance</th>
                 <th className="px-6 py-4 text-center">Net Status</th>
               </tr>
             </thead>
             <tbody className="bg-white dark:bg-slate-900 divide-y divide-gray-50 dark:divide-slate-800 text-sm">
               {reportData.length === 0 ? (
-                <tr><td colSpan={6} className="px-6 py-20 text-center text-gray-400 dark:text-slate-500 font-medium tracking-wide italic opacity-70">
+                <tr><td colSpan={hideCopper ? 5 : 6} className="px-6 py-20 text-center text-gray-400 dark:text-slate-500 font-medium tracking-wide italic opacity-70">
                       No matching records found for the given filters
                    </td>
                 </tr>
@@ -470,10 +467,12 @@ const CustomerSummaryReport: React.FC<CustomerSummaryReportProps> = ({ customers
                       {Math.abs(c.silverBal).toFixed(2)}
                       <span className="text-[10px] ml-1 opacity-70">{c.silverBal >= 0 ? 'LAINA' : 'DAINA'}</span>
                     </td>
-                    <td className={`px-6 py-4 text-right font-semibold ${c.copperBal >= 0 ? 'text-amber-700 dark:text-amber-400' : 'text-rose-600 dark:text-rose-400'}`}>
-                      {Math.abs(c.copperBal).toFixed(2)}
-                      <span className="text-[10px] ml-1 opacity-70">{c.copperBal >= 0 ? 'LAINA' : 'DAINA'}</span>
-                    </td>
+                    {!hideCopper && (
+                      <td className={`px-6 py-4 text-right font-semibold ${c.copperBal >= 0 ? 'text-amber-700 dark:text-amber-400' : 'text-rose-600 dark:text-rose-400'}`}>
+                        {Math.abs(c.copperBal).toFixed(2)}
+                        <span className="text-[10px] ml-1 opacity-70">{c.copperBal >= 0 ? 'LAINA' : 'DAINA'}</span>
+                      </td>
+                    )}
                     <td className={`px-6 py-4 text-right font-semibold ${c.cashBal >= 0 ? 'text-blue-800 dark:text-blue-300' : 'text-rose-800 dark:text-rose-400'}`}>
                       Rs. {Math.round(Math.abs(c.cashBal)).toLocaleString()}
                     </td>
@@ -492,7 +491,9 @@ const CustomerSummaryReport: React.FC<CustomerSummaryReportProps> = ({ customers
                   <td className="px-6 py-4 tracking-wide text-gray-500 dark:text-slate-400">Page Totals:</td>
                   <td className={`px-6 py-4 text-right ${totals.gold >= 0 ? 'text-blue-800 dark:text-blue-300' : 'text-rose-700 dark:text-rose-400'}`}>{Math.abs(totals.gold).toFixed(3)}g</td>
                   <td className={`px-6 py-4 text-right ${totals.silver >= 0 ? 'text-slate-700 dark:text-slate-300' : 'text-rose-700 dark:text-rose-400'}`}>{Math.abs(totals.silver).toFixed(2)}g</td>
-                  <td className={`px-6 py-4 text-right ${totals.copper >= 0 ? 'text-amber-700 dark:text-amber-400' : 'text-rose-700 dark:text-rose-400'}`}>{Math.abs(totals.copper).toFixed(2)}g</td>
+                  {!hideCopper && (
+                    <td className={`px-6 py-4 text-right ${totals.copper >= 0 ? 'text-amber-700 dark:text-amber-400' : 'text-rose-700 dark:text-rose-400'}`}>{Math.abs(totals.copper).toFixed(2)}g</td>
+                  )}
                   <td className={`px-6 py-4 text-right ${totals.cash >= 0 ? 'text-blue-800 dark:text-blue-300' : 'text-rose-800 dark:text-rose-400'}`}>Rs. {Math.round(Math.abs(totals.cash)).toLocaleString()}</td>
                   <td className="px-6 py-4 text-center">
                     <span className={`text-xs px-2 py-0.5 rounded font-semibold ${totals.cash >= 0 ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300' : 'bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300'}`}>

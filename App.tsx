@@ -339,6 +339,7 @@ const App: React.FC = () => {
             customers={state.customers}
             projectName={currentUser.projectName}
             shopPhone={currentUser.phone || ''}
+            hideCopper={currentUser.id === 'u_haroon'}
           />
         ) : currentView.type === 'daily' ? (
           <DailyTradeReport 
@@ -346,6 +347,7 @@ const App: React.FC = () => {
             customers={state.customers}
             projectName={currentUser.projectName}
             shopPhone={currentUser.phone || ''}
+            hideCopper={currentUser.id === 'u_haroon'}
           />
         ) : currentView.type === 'summary' ? (
           <CustomerSummaryReport
@@ -354,6 +356,7 @@ const App: React.FC = () => {
             banks={state.banks}
             projectName={currentUser.projectName}
             shopPhone={currentUser.phone || ''}
+            hideCopper={currentUser.id === 'u_haroon'}
           />
         ) : currentView.type === 'banks' ? (
           <BankLedger

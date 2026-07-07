@@ -31,9 +31,10 @@ interface DailyTradeReportProps {
   customers: Customer[];
   projectName: string;
   shopPhone: string;
+  hideCopper?: boolean;
 }
 
-const DailyTradeReport: React.FC<DailyTradeReportProps> = ({ transactions, customers, projectName, shopPhone }) => {
+const DailyTradeReport: React.FC<DailyTradeReportProps> = ({ transactions, customers, projectName, shopPhone, hideCopper = false }) => {
   const [dateRange, setDateRange] = useState({
     start: format(new Date(), 'yyyy-MM-dd'),
     end: format(new Date(), 'yyyy-MM-dd')
@@ -232,10 +233,13 @@ const DailyTradeReport: React.FC<DailyTradeReportProps> = ({ transactions, custo
     doc.setFont('helvetica', 'normal');
     doc.text(`Gold Profit/Loss: Rs. ${Math.round(dailyData.summary.gold.profit).toLocaleString()}`, 14, finalY + 8);
     doc.text(`Silver Profit/Loss: Rs. ${Math.round(dailyData.summary.silver.profit).toLocaleString()}`, 14, finalY + 16);
-    doc.text(`Copper Profit/Loss: Rs. ${Math.round(dailyData.summary.copper.profit).toLocaleString()}`, 14, finalY + 24);
-    doc.text(`Net Grand Total: Rs. ${Math.abs(Math.round(dailyData.summary.grandTotal)).toLocaleString()}`, 14, finalY + 32);
+    const netTotalY = hideCopper ? finalY + 24 : finalY + 32;
+    if (!hideCopper) {
+      doc.text(`Copper Profit/Loss: Rs. ${Math.round(dailyData.summary.copper.profit).toLocaleString()}`, 14, finalY + 24);
+    }
+    doc.text(`Net Grand Total: Rs. ${Math.abs(Math.round(dailyData.summary.grandTotal)).toLocaleString()}`, 14, netTotalY);
     doc.setFont('helvetica', 'bold');
-    doc.text(`(${dailyData.summary.grandTotal >= 0 ? 'TOTAL PROFIT' : 'TOTAL LOSS'})`, 140, finalY + 32);
+    doc.text(`(${dailyData.summary.grandTotal >= 0 ? 'TOTAL PROFIT' : 'TOTAL LOSS'})`, 140, netTotalY);
 
     doc.save(`Daily_Trade_Sheet_${dateRange.start}.pdf`);
   };
@@ -280,7 +284,9 @@ const DailyTradeReport: React.FC<DailyTradeReportProps> = ({ transactions, custo
           <div className="flex bg-gray-100 dark:bg-slate-800 p-1.5 rounded-2xl border border-gray-200 dark:border-slate-700 shadow-inner">
             <button onClick={() => setMetalType('GOLD')} className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all ${metalType === 'GOLD' ? 'bg-yellow-500 text-white shadow-md' : 'text-gray-500 dark:text-slate-400'}`}><Scale size={12} /><span>Gold</span></button>
             <button onClick={() => setMetalType('SILVER')} className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all ${metalType === 'SILVER' ? 'bg-slate-500 text-white shadow-md' : 'text-gray-500 dark:text-slate-400'}`}><Coins size={12} /><span>Silver</span></button>
-            <button onClick={() => setMetalType('COPPER')} className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all ${metalType === 'COPPER' ? 'bg-amber-700 text-white shadow-md' : 'text-gray-500 dark:text-slate-400'}`}><Coins size={12} /><span>Copper</span></button>
+            {!hideCopper && (
+              <button onClick={() => setMetalType('COPPER')} className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all ${metalType === 'COPPER' ? 'bg-amber-700 text-white shadow-md' : 'text-gray-500 dark:text-slate-400'}`}><Coins size={12} /><span>Copper</span></button>
+            )}
           </div>
 
           <div className="flex items-center bg-gray-100 dark:bg-slate-800 p-1.5 rounded-2xl border border-gray-200 dark:border-slate-700">
@@ -454,7 +460,7 @@ const DailyTradeReport: React.FC<DailyTradeReportProps> = ({ transactions, custo
                </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-8">
+            <div className={`grid grid-cols-1 md:grid-cols-2 ${hideCopper ? 'xl:grid-cols-3' : 'xl:grid-cols-4'} gap-8`}>
                {/* Gold Profit/Loss Box */}
                <div className="bg-white/5 rounded-3xl p-6 border border-white/10 hover:border-yellow-500/50 transition-all group/box">
                   <div className="flex items-center justify-between mb-4">
@@ -516,6 +522,7 @@ const DailyTradeReport: React.FC<DailyTradeReportProps> = ({ transactions, custo
                </div>
 
                {/* Copper Profit/Loss Box */}
+               {!hideCopper && (
                <div className="bg-white/5 rounded-3xl p-6 border border-white/10 hover:border-amber-400/50 transition-all group/box">
                   <div className="flex items-center justify-between mb-4">
                     <p className="text-xs font-semibold tracking-wide text-amber-400">Copper Performance</p>
@@ -544,6 +551,7 @@ const DailyTradeReport: React.FC<DailyTradeReportProps> = ({ transactions, custo
                      </div>
                   </div>
                </div>
+               )}
 
                {/* Grand Total Performance */}
                <div className="bg-indigo-600/10 rounded-3xl p-6 border border-indigo-500/30 shadow-lg shadow-black/20 group/box relative overflow-hidden">

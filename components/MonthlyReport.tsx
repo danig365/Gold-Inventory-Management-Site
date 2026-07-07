@@ -14,9 +14,10 @@ interface MonthlyReportProps {
   customers: Customer[];
   projectName: string;
   shopPhone: string;
+  hideCopper?: boolean;
 }
 
-const MonthlyReport: React.FC<MonthlyReportProps> = ({ transactions, customers, projectName, shopPhone }) => {
+const MonthlyReport: React.FC<MonthlyReportProps> = ({ transactions, customers, projectName, shopPhone, hideCopper = false }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState<string>('ALL');
   const [dateRange, setDateRange] = useState({
@@ -192,8 +193,12 @@ const MonthlyReport: React.FC<MonthlyReportProps> = ({ transactions, customers, 
               <option value={TransactionType.SELL_GOLD}>Gold Sales</option>
               <option value={TransactionType.BUY_SILVER}>Silver Purchases</option>
               <option value={TransactionType.SELL_SILVER}>Silver Sales</option>
-              <option value={TransactionType.BUY_COPPER}>Copper Purchases</option>
-              <option value={TransactionType.SELL_COPPER}>Copper Sales</option>
+              {!hideCopper && (
+                <>
+                  <option value={TransactionType.BUY_COPPER}>Copper Purchases</option>
+                  <option value={TransactionType.SELL_COPPER}>Copper Sales</option>
+                </>
+              )}
             </select>
           </div>
 
@@ -225,7 +230,7 @@ const MonthlyReport: React.FC<MonthlyReportProps> = ({ transactions, customers, 
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className={`grid grid-cols-1 sm:grid-cols-2 ${hideCopper ? 'lg:grid-cols-3' : 'lg:grid-cols-4'} gap-4`}>
         <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl shadow-sm border border-yellow-100 dark:border-yellow-900/30 flex items-center justify-between transition-colors duration-300">
           <div>
             <div className="flex items-center space-x-3 text-yellow-600 dark:text-yellow-500 mb-2">
@@ -260,22 +265,24 @@ const MonthlyReport: React.FC<MonthlyReportProps> = ({ transactions, customers, 
           </div>
         </div>
 
-        <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl shadow-sm border border-amber-100 dark:border-amber-900/30 flex items-center justify-between transition-colors duration-300">
-          <div>
-            <div className="flex items-center space-x-3 text-amber-700 dark:text-amber-500 mb-2">
-              <Layers size={20} />
-              <span className="text-xs font-semibold tracking-wide">Copper Stats</span>
+        {!hideCopper && (
+          <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl shadow-sm border border-amber-100 dark:border-amber-900/30 flex items-center justify-between transition-colors duration-300">
+            <div>
+              <div className="flex items-center space-x-3 text-amber-700 dark:text-amber-500 mb-2">
+                <Layers size={20} />
+                <span className="text-xs font-semibold tracking-wide">Copper Stats</span>
+              </div>
+              <div className="space-y-0.5">
+                <p className="text-xs text-gray-500 dark:text-slate-400 font-medium">IN: <span className="text-gray-900 dark:text-slate-200 font-semibold">{totals.buyCopper.toFixed(2)}g</span></p>
+                <p className="text-xs text-gray-500 dark:text-slate-400 font-medium">OUT: <span className="text-gray-900 dark:text-slate-200 font-semibold">{totals.sellCopper.toFixed(2)}g</span></p>
+              </div>
             </div>
-            <div className="space-y-0.5">
-              <p className="text-xs text-gray-500 dark:text-slate-400 font-medium">IN: <span className="text-gray-900 dark:text-slate-200 font-semibold">{totals.buyCopper.toFixed(2)}g</span></p>
-              <p className="text-xs text-gray-500 dark:text-slate-400 font-medium">OUT: <span className="text-gray-900 dark:text-slate-200 font-semibold">{totals.sellCopper.toFixed(2)}g</span></p>
+            <div className="text-right">
+              <p className="text-xs font-semibold text-gray-400 dark:text-slate-500">Volume</p>
+              <p className="text-2xl font-bold text-amber-800 dark:text-amber-400">{(totals.buyCopper + totals.sellCopper).toFixed(2)}g</p>
             </div>
           </div>
-          <div className="text-right">
-            <p className="text-xs font-semibold text-gray-400 dark:text-slate-500">Volume</p>
-            <p className="text-2xl font-bold text-amber-800 dark:text-amber-400">{(totals.buyCopper + totals.sellCopper).toFixed(2)}g</p>
-          </div>
-        </div>
+        )}
 
         <div className="bg-indigo-900 dark:bg-indigo-800 p-5 rounded-2xl shadow-xl text-white flex items-center justify-between transition-colors duration-300">
           <div>
