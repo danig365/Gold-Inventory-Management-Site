@@ -210,6 +210,7 @@ async function initializeDatabase() {
         type TEXT NOT NULL,
         "goldWeight" DOUBLE PRECISION,
         "silverWeight" DOUBLE PRECISION,
+        "copperWeight" DOUBLE PRECISION,
         rate DOUBLE PRECISION,
         "rateMode" TEXT,
         "totalAmount" DOUBLE PRECISION,
@@ -240,6 +241,7 @@ async function initializeDatabase() {
     await client.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS phone TEXT');
     await client.query('ALTER TABLE transactions ADD COLUMN IF NOT EXISTS "copperIn" DOUBLE PRECISION');
     await client.query('ALTER TABLE transactions ADD COLUMN IF NOT EXISTS "copperOut" DOUBLE PRECISION');
+    await client.query('ALTER TABLE transactions ADD COLUMN IF NOT EXISTS "copperWeight" DOUBLE PRECISION');
     await client.query('ALTER TABLE transactions ADD COLUMN IF NOT EXISTS "dueDate" TEXT');
     await client.query('ALTER TABLE transactions ADD COLUMN IF NOT EXISTS "attachmentId" TEXT');
     await client.query('ALTER TABLE transactions ADD COLUMN IF NOT EXISTS "attachmentName" TEXT');
@@ -297,7 +299,7 @@ async function getAllData(userId) {
   const [customers, banks, transactions] = await Promise.all([
     pool.query('SELECT id, name, address, phone FROM customers WHERE "userId" = $1', [userId]),
     pool.query('SELECT id, name, "accountNumber", "initialBalance" FROM banks WHERE "userId" = $1', [userId]),
-    pool.query(`SELECT id, "customerId", "bankId", date, type, "goldWeight", "silverWeight",
+    pool.query(`SELECT id, "customerId", "bankId", date, type, "goldWeight", "silverWeight", "copperWeight",
       rate, "rateMode", "totalAmount", "cashIn", "cashOut", "goldIn", "goldOut",
       "silverIn", "silverOut", "copperIn", "copperOut", remarks, "impureWeight", point, karat,
       "paymentMethod", "transferType", "referenceNo", "dueDate", "attachmentId", "attachmentName", "createdAt"
@@ -341,14 +343,14 @@ async function saveAllData(userId, state) {
     for (const t of (state.transactions || [])) {
       await client.query(
         `INSERT INTO transactions (
-          id, "userId", "customerId", "bankId", date, type, "goldWeight", "silverWeight", rate, "rateMode",
+          id, "userId", "customerId", "bankId", date, type, "goldWeight", "silverWeight", "copperWeight", rate, "rateMode",
           "totalAmount", "cashIn", "cashOut", "goldIn", "goldOut", "silverIn", "silverOut",
           "copperIn", "copperOut", remarks, "impureWeight", point, karat, "paymentMethod", "transferType", "referenceNo",
           "dueDate", "attachmentId", "attachmentName", "createdAt"
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30)`,
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31)`,
         [
           t.id, userId, t.customerId || null, t.bankId || null, t.date, t.type,
-          t.goldWeight || null, t.silverWeight || null, t.rate || null, t.rateMode || null,
+          t.goldWeight || null, t.silverWeight || null, t.copperWeight || null, t.rate || null, t.rateMode || null,
           t.totalAmount || null, t.cashIn || null, t.cashOut || null,
           t.goldIn || null, t.goldOut || null, t.silverIn || null, t.silverOut || null,
           t.copperIn || null, t.copperOut || null, t.remarks, t.impureWeight || null, t.point || null, t.karat || null,
