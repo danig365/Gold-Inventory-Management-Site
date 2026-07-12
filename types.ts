@@ -49,7 +49,7 @@ export interface Transaction {
   copperIn?: number;
   copperOut?: number;
   remarks: string;
-  rateMode?: 'GRAM' | 'TOLA';
+  rateMode?: 'GRAM' | 'TOLA' | 'TOLA_ALT';
   // Metal settlement details
   impureWeight?: number;
   point?: number;

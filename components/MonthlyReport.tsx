@@ -8,6 +8,14 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
 const TOLA_WEIGHT = 11.664;
+const ALT_TOLA_WEIGHT = 12.15;
+
+const getDisplayRate = (t: Transaction): number => {
+  const rate = t.rate || 0;
+  if (t.rateMode === 'GRAM') return rate;
+  if (t.rateMode === 'TOLA_ALT') return rate * ALT_TOLA_WEIGHT;
+  return rate * TOLA_WEIGHT;
+};
 
 interface MonthlyReportProps {
   transactions: Transaction[];
@@ -87,7 +95,7 @@ const MonthlyReport: React.FC<MonthlyReportProps> = ({ transactions, customers, 
       'Type': t.type.split('_').join(' '),
       'Metal': t.type.includes('GOLD') ? 'Gold' : t.type.includes('SILVER') ? 'Silver' : 'Copper',
       'Weight (g)': (t.goldWeight || t.silverWeight || t.copperWeight || 0).toFixed(3),
-      'Rate (Tola)': t.rate ? (t.rate * TOLA_WEIGHT).toFixed(2) : 0,
+      'Rate (Tola)': t.rate ? getDisplayRate(t).toFixed(2) : 0,
       'PKR Value': Math.round((t.goldWeight || t.silverWeight || t.copperWeight || 0) * (t.rate || 0)),
       'Remarks': t.remarks || ''
     }));
@@ -125,7 +133,7 @@ const MonthlyReport: React.FC<MonthlyReportProps> = ({ transactions, customers, 
         getCustomerName(t.customerId),
         t.type.split('_')[0],
         `${(t.goldWeight || t.silverWeight || t.copperWeight || 0).toFixed(3)}g`,
-        ((t.rate || 0) * TOLA_WEIGHT).toLocaleString(undefined, { maximumFractionDigits: 2 }),
+        getDisplayRate(t).toLocaleString(undefined, { maximumFractionDigits: 2 }),
         Math.round((t.goldWeight || t.silverWeight || t.copperWeight || 0) * (t.rate || 0)).toLocaleString()
       ]),
       theme: 'grid',
@@ -344,7 +352,7 @@ const MonthlyReport: React.FC<MonthlyReportProps> = ({ transactions, customers, 
                       {(t.goldWeight || t.silverWeight)?.toFixed(3)}g
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right font-medium text-gray-500 dark:text-slate-400">
-                      {t.rate ? (t.rate * TOLA_WEIGHT).toLocaleString(undefined, { maximumFractionDigits: 2 }) : '-'}
+                      {t.rate ? getDisplayRate(t).toLocaleString(undefined, { maximumFractionDigits: 2 }) : '-'}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right font-semibold text-indigo-900 dark:text-indigo-400">
                       Rs. {Math.round((t.goldWeight || t.silverWeight || 0) * (t.rate || 0)).toLocaleString()}

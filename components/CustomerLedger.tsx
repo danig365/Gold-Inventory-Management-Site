@@ -9,7 +9,17 @@ import autoTable from 'jspdf-autotable';
 import { api } from '../api';
 
 const TOLA_WEIGHT = 11.664;
+const ALT_TOLA_WEIGHT = 12.15;
 const getStarStorageKey = (customerId: string) => `customer-ledger-stars:${customerId}`;
+
+// Returns the per-tola-equivalent rate for a saved transaction, using whichever
+// tola standard (11.664g or 12.15g) was actually active when the entry was made.
+const getTransactionDisplayRate = (t: Transaction): number => {
+  const rate = t.rate || 0;
+  if (t.rateMode === 'GRAM') return rate;
+  if (t.rateMode === 'TOLA_ALT') return rate * ALT_TOLA_WEIGHT;
+  return rate * TOLA_WEIGHT;
+};
 
 const BALANCE_FILTER_TYPES: Record<'CASH' | 'GOLD' | 'SILVER' | 'COPPER', TransactionType[]> = {
   CASH: [TransactionType.CASH_PAYMENT, TransactionType.BUY_GOLD, TransactionType.SELL_GOLD, TransactionType.BUY_SILVER, TransactionType.SELL_SILVER, TransactionType.BUY_COPPER, TransactionType.SELL_COPPER],
@@ -279,7 +289,10 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
   useEffect(() => {
     if (editingTransaction) {
       const w = editingTransaction.goldWeight || editingTransaction.silverWeight || editingTransaction.copperWeight || editingTransaction.goldIn || editingTransaction.goldOut || editingTransaction.silverIn || editingTransaction.silverOut || editingTransaction.copperIn || editingTransaction.copperOut || 0;
-      const loadedRateMode = editingTransaction.rateMode || 'TOLA';
+      const storedRateMode = editingTransaction.rateMode || 'TOLA';
+      const loadedIsAltTola = storedRateMode === 'TOLA_ALT';
+      const loadedRateMode: 'GRAM' | 'TOLA' = storedRateMode === 'GRAM' ? 'GRAM' : 'TOLA';
+      const loadedTolaWeight = loadedIsAltTola ? ALT_TOLA_WEIGHT : TOLA_WEIGHT;
       
       const newFd: TransactionFormData = {
         weight: w,
@@ -287,7 +300,7 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
         amount: editingTransaction.cashIn || editingTransaction.cashOut || 0,
         remarks: editingTransaction.remarks,
         date: editingTransaction.date,
-        ratePerTola: (editingTransaction.rate || 0) * TOLA_WEIGHT,
+        ratePerTola: (editingTransaction.rate || 0) * loadedTolaWeight,
         paymentMethod: editingTransaction.paymentMethod || PaymentMethod.CASH,
         bankId: editingTransaction.bankId || '',
         transferType: editingTransaction.transferType || TransferType.TF,
@@ -310,7 +323,7 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
       syncRateInput(newFd, loadedRateMode);
       setIsTxModalOpen(true);
       setWeightMode(loadedRateMode);
-      setUseAltTola(false);
+      setUseAltTola(loadedIsAltTola);
       syncInputs(newFd);
     }
   }, [editingTransaction]);
@@ -703,7 +716,7 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
       date: formData.date,
       type: activeForm,
       remarks: formData.remarks,
-      rateMode: isMetalTrade ? rateMode : undefined,
+      rateMode: isMetalTrade ? (rateMode === 'TOLA' && useAltTola ? 'TOLA_ALT' : rateMode) : undefined,
       attachmentId: formData.attachmentId || undefined,
       attachmentName: formData.attachmentName || undefined,
       createdAt: editingTransaction ? editingTransaction.createdAt : new Date().toISOString(),
@@ -790,11 +803,6 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
   };
 
   const exportToExcel = () => {
-    const getDisplayRate = (t: Transaction) => {
-      const mode = t.rateMode || 'TOLA';
-      return mode === 'GRAM' ? (t.rate || 0) : (t.rate || 0) * TOLA_WEIGHT;
-    };
-
     const data = ledgerData.map(t => ({
       'Sr No': t.srNo,
       'Date': format(parseDateString(t.date), 'dd/MM/yyyy'),
@@ -802,7 +810,7 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
       'Impure (g)': t.impureWeight || '-',
       'Point/Karat': t.point || t.karat || '-',
       'Pure (g)': (t.goldWeight || t.goldIn || t.goldOut || t.silverWeight || t.silverIn || t.silverOut || t.copperWeight || t.copperIn || t.copperOut || 0).toFixed(3),
-      'Rate': getDisplayRate(t).toFixed(2),
+      'Rate': getTransactionDisplayRate(t).toFixed(2),
       'Receivable (Rs)': t.cashIn || (t.type.includes('SELL') ? t.tradeValue : 0),
       'Payable (Rs)': t.cashOut || (t.type.includes('BUY') ? t.tradeValue : 0),
       'Cash Balance (Rs)': t.remainingCash,
@@ -818,11 +826,6 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
   };
 
   const exportToPDF = () => {
-    const getDisplayRate = (t: Transaction) => {
-      const mode = t.rateMode || 'TOLA';
-      return mode === 'GRAM' ? (t.rate || 0) : (t.rate || 0) * TOLA_WEIGHT;
-    };
-
     const doc = new jsPDF('l', 'mm', 'a4');
     doc.setFontSize(22);
     doc.setTextColor(30, 41, 59);
@@ -848,7 +851,7 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
         t.impureWeight?.toFixed(2) || '-',
         t.point ? `${t.point} (P)` : (t.karat ? `${t.karat} (K)` : '-'),
         (t.goldWeight || t.goldIn || t.goldOut || t.silverWeight || t.silverIn || t.silverOut || t.copperWeight || t.copperIn || t.copperOut || 0).toFixed(3),
-      getDisplayRate(t).toLocaleString(undefined, { maximumFractionDigits: 2 }),
+      getTransactionDisplayRate(t).toLocaleString(undefined, { maximumFractionDigits: 2 }),
         (t.cashIn || (t.type.includes('SELL') ? t.tradeValue : 0))?.toLocaleString() || '0',
         (t.cashOut || (t.type.includes('BUY') ? t.tradeValue : 0))?.toLocaleString() || '0',
         t.remainingCash.toLocaleString(),
@@ -1151,7 +1154,7 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
                         {(t.goldWeight || t.goldIn || t.goldOut || t.silverWeight || t.silverIn || t.silverOut || t.copperWeight || t.copperIn || t.copperOut || 0).toFixed(3)}
                       </span>
                     </td>
-                    <td className="px-3 py-2 text-right font-medium text-gray-700 dark:text-slate-400 border-r border-gray-300 dark:border-slate-800 whitespace-nowrap">{((t.rateMode || 'TOLA') === 'GRAM' ? (t.rate || 0) : (t.rate || 0) * TOLA_WEIGHT).toLocaleString(undefined, { maximumFractionDigits: 2 })}</td>
+                    <td className="px-3 py-2 text-right font-medium text-gray-700 dark:text-slate-400 border-r border-gray-300 dark:border-slate-800 whitespace-nowrap">{getTransactionDisplayRate(t).toLocaleString(undefined, { maximumFractionDigits: 2 })}</td>
                     <td className="px-3 py-2 text-right font-bold text-green-700 dark:text-green-400 border-r border-gray-300 dark:border-slate-800 whitespace-nowrap">{t.cashIn ? t.cashIn.toLocaleString() : (t.type.includes('SELL') ? t.tradeValue?.toLocaleString() : '-')}</td>
                     <td className="px-3 py-2 text-right font-bold text-rose-700 dark:text-rose-400 border-r border-gray-300 dark:border-slate-800 whitespace-nowrap">{t.cashOut ? t.cashOut.toLocaleString() : (t.type.includes('BUY') ? t.tradeValue?.toLocaleString() : '-')}</td>
                     <td className="px-3 py-2 text-right font-semibold text-indigo-900 dark:text-indigo-400 border-r border-gray-300 dark:border-slate-800 whitespace-nowrap">

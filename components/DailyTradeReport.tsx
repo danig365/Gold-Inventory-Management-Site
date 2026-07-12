@@ -7,6 +7,7 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
 const TOLA_WEIGHT = 11.664;
+const ALT_TOLA_WEIGHT = 12.15;
 const ROW_HIGHLIGHT_STORAGE_KEY = 'dailyTradeRowHighlights';
 type HighlightColor = 'red' | 'yellow' | 'green';
 const HIGHLIGHT_COLORS: HighlightColor[] = ['red', 'yellow', 'green'];
@@ -22,8 +23,10 @@ const HIGHLIGHT_DOT_CLASSES: Record<HighlightColor, string> = {
 };
 
 const getDisplayRate = (t: Transaction) => {
-  const mode = t.rateMode || 'TOLA';
-  return mode === 'GRAM' ? (t.rate || 0) : (t.rate || 0) * TOLA_WEIGHT;
+  const rate = t.rate || 0;
+  if (t.rateMode === 'GRAM') return rate;
+  if (t.rateMode === 'TOLA_ALT') return rate * ALT_TOLA_WEIGHT;
+  return rate * TOLA_WEIGHT;
 };
 
 interface DailyTradeReportProps {
