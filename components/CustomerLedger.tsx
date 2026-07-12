@@ -321,7 +321,7 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
     const clearedFd = createDefaultFormData(dateOverride ?? formData.date);
     if (type === TransactionType.LEDGER_TRANSFER) clearedFd.direction = 'OUT';
     setFormData(clearedFd);
-    setWeightMode('TOLA');
+    setWeightMode(type === TransactionType.LEDGER_TRANSFER ? 'GRAM' : 'TOLA');
     setRateMode('TOLA');
     setUseAltTola(false);
     setRateInput('');
@@ -1524,8 +1524,8 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
                          <div>
                            <label className="block text-[8px] font-black text-purple-500 dark:text-purple-400 uppercase tracking-widest mb-1">Cash Direction</label>
                            <div className="flex bg-gray-100 dark:bg-slate-800 p-1 rounded-lg border border-gray-200 dark:border-slate-700">
-                             <button type="button" onClick={() => setFormData({...formData, direction: 'OUT'})} className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-md font-black uppercase text-[8px] transition-all ${formData.direction === 'OUT' ? 'bg-purple-600 text-white shadow-sm' : 'text-gray-400 dark:text-slate-500 hover:text-gray-500 dark:hover:text-slate-300'}`}><ArrowUpRight size={12} />Pay To Selected Ledger</button>
-                             <button type="button" onClick={() => setFormData({...formData, direction: 'IN'})} className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-md font-black uppercase text-[8px] transition-all ${formData.direction === 'IN' ? 'bg-purple-600 text-white shadow-sm' : 'text-gray-400 dark:text-slate-500 hover:text-gray-500 dark:hover:text-slate-300'}`}><ArrowDownLeft size={12} />Receive From Selected Ledger</button>
+                             <button type="button" onClick={() => setFormData({...formData, direction: 'OUT', ...(goldTransferEnabled ? { goldDirection: 'IN' } : {})})} className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-md font-black uppercase text-[8px] transition-all ${formData.direction === 'OUT' ? 'bg-purple-600 text-white shadow-sm' : 'text-gray-400 dark:text-slate-500 hover:text-gray-500 dark:hover:text-slate-300'}`}><ArrowUpRight size={12} />Pay To Selected Ledger</button>
+                             <button type="button" onClick={() => setFormData({...formData, direction: 'IN', ...(goldTransferEnabled ? { goldDirection: 'OUT' } : {})})} className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-md font-black uppercase text-[8px] transition-all ${formData.direction === 'IN' ? 'bg-purple-600 text-white shadow-sm' : 'text-gray-400 dark:text-slate-500 hover:text-gray-500 dark:hover:text-slate-300'}`}><ArrowDownLeft size={12} />Receive From Selected Ledger</button>
                            </div>
                          </div>
                          <div className="relative">
