@@ -684,9 +684,9 @@ const Dashboard: React.FC<DashboardProps> = ({ customers, transactions, banks, o
              <div className="w-16 h-16 bg-rose-50 dark:bg-rose-900/30 rounded-full flex items-center justify-center mx-auto mb-6 text-rose-600 dark:text-rose-400">
                 <AlertTriangle size={32} />
              </div>
-             <h3 className="font-display text-xl font-semibold mb-2 tracking-tight text-gray-800 dark:text-slate-100">Confirm Deletion</h3>
+             <h3 className="font-display text-xl font-semibold mb-2 tracking-tight text-gray-800 dark:text-slate-100">Move to Trash?</h3>
              <p className="text-sm text-gray-500 dark:text-slate-400 mb-8 font-medium px-4 leading-relaxed">
-               All transactions for this customer will be permanently removed. This cannot be undone.
+               This customer and all their transactions will be moved to Trash. You can restore them within 30 days.
              </p>
              <div className="grid grid-cols-2 gap-4">
                <button onClick={() => setDeletingCustomerId(null)} className="py-3 text-sm font-semibold text-gray-500 dark:text-slate-400 bg-gray-50 dark:bg-slate-800 rounded-2xl hover:bg-gray-100 dark:hover:bg-slate-700 transition-all">Cancel</button>

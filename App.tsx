@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Customer, Transaction, AppState, Bank, AuthUser } from './types';
+import { Customer, Transaction, AppState, Bank, AuthUser, TrashEntry } from './types';
 import Dashboard from './components/Dashboard';
 import CustomerLedger from './components/CustomerLedger';
 import MonthlyReport from './components/MonthlyReport';
@@ -8,6 +8,7 @@ import DailyTradeReport from './components/DailyTradeReport';
 import CustomerSummaryReport from './components/CustomerSummaryReport';
 import BankLedger from './components/BankLedger';
 import BackupStatus from './components/BackupStatus';
+import Trash from './components/Trash';
 import { Layout } from './components/Layout';
 import { AuthPortal } from './components/AuthPortal';
 import { api } from './api';
@@ -36,7 +37,7 @@ const App: React.FC = () => {
   const [lastBackupAt, setLastBackupAt] = useState<string | null>(null);
   
   const [currentView, setCurrentView] = useState<{
-    type: 'dashboard' | 'ledger' | 'report' | 'summary' | 'banks' | 'daily';
+    type: 'dashboard' | 'ledger' | 'report' | 'summary' | 'banks' | 'daily' | 'trash';
     customerId?: string;
     metalFilter?: 'ALL' | 'GOLD' | 'SILVER' | 'COPPER';
   }>({ type: 'dashboard' });
@@ -159,7 +160,17 @@ const App: React.FC = () => {
     }));
   };
 
-  const deleteCustomer = (id: string) => {
+  const deleteCustomer = async (id: string) => {
+    const customer = state.customers.find(c => c.id === id);
+    if (!customer) return;
+    const relatedTransactions = state.transactions.filter(t => t.customerId === id);
+    try {
+      await api.moveToTrash('customer', id, { customer, transactions: relatedTransactions }, customer.name);
+    } catch (error) {
+      console.error('Failed to move customer to trash:', error);
+      alert('Failed to delete customer: ' + (error as Error).message);
+      return;
+    }
     setState(prev => ({
       ...prev,
       customers: prev.customers.filter(c => c.id !== id),
@@ -181,7 +192,17 @@ const App: React.FC = () => {
     }));
   };
 
-  const deleteBank = (id: string) => {
+  const deleteBank = async (id: string) => {
+    const bank = state.banks.find(b => b.id === id);
+    if (!bank) return;
+    const relatedTransactions = state.transactions.filter(t => t.bankId === id);
+    try {
+      await api.moveToTrash('bank', id, { bank, transactions: relatedTransactions }, bank.name);
+    } catch (error) {
+      console.error('Failed to move bank to trash:', error);
+      alert('Failed to delete bank: ' + (error as Error).message);
+      return;
+    }
     setState(prev => ({
       ...prev,
       banks: prev.banks.filter(b => b.id !== id),
@@ -201,11 +222,47 @@ const App: React.FC = () => {
     }));
   };
 
-  const deleteTransaction = (id: string) => {
+  const deleteTransaction = async (id: string) => {
+    const transaction = state.transactions.find(t => t.id === id);
+    if (!transaction) return;
+    const customerName = state.customers.find(c => c.id === transaction.customerId)?.name;
+    const label = [transaction.type.split('_').join(' '), customerName, transaction.remarks].filter(Boolean).join(' - ');
+    try {
+      await api.moveToTrash('transaction', id, transaction, label);
+    } catch (error) {
+      console.error('Failed to move transaction to trash:', error);
+      alert('Failed to delete transaction: ' + (error as Error).message);
+      return;
+    }
     setState(prev => ({
       ...prev,
       transactions: prev.transactions.filter(t => t.id !== id)
     }));
+  };
+
+  const restoreTrashItem = async (entry: TrashEntry) => {
+    await api.restoreFromTrash(entry.id);
+    if (entry.itemType === 'customer') {
+      const { customer, transactions } = entry.itemData as { customer: Customer; transactions: Transaction[] };
+      setState(prev => ({
+        ...prev,
+        customers: prev.customers.some(c => c.id === customer.id) ? prev.customers : [...prev.customers, customer],
+        transactions: [...prev.transactions, ...transactions.filter(t => !prev.transactions.some(pt => pt.id === t.id))],
+      }));
+    } else if (entry.itemType === 'bank') {
+      const { bank, transactions } = entry.itemData as { bank: Bank; transactions: Transaction[] };
+      setState(prev => ({
+        ...prev,
+        banks: prev.banks.some(b => b.id === bank.id) ? prev.banks : [...prev.banks, bank],
+        transactions: [...prev.transactions, ...transactions.filter(t => !prev.transactions.some(pt => pt.id === t.id))],
+      }));
+    } else if (entry.itemType === 'transaction') {
+      const transaction = entry.itemData as Transaction;
+      setState(prev => ({
+        ...prev,
+        transactions: prev.transactions.some(t => t.id === transaction.id) ? prev.transactions : [...prev.transactions, transaction],
+      }));
+    }
   };
 
   // Backup database - download as file
@@ -300,6 +357,7 @@ const App: React.FC = () => {
         onViewDashboard={() => setCurrentView({ type: 'dashboard' })}
         onViewBanks={() => setCurrentView({ type: 'banks' })}
         onViewDaily={() => setCurrentView({ type: 'daily' })}
+        onViewTrash={() => setCurrentView({ type: 'trash' })}
         onToggleDarkMode={() => setIsDarkMode(!isDarkMode)}
         onLogout={handleLogout}
         isDarkMode={isDarkMode}
@@ -315,6 +373,7 @@ const App: React.FC = () => {
           currentView.type === 'summary' ? 'Customer Summary Report' :
           currentView.type === 'banks' ? 'Bank Statement Manager' :
           currentView.type === 'daily' ? 'Daily Buy/Sell Sheet' :
+          currentView.type === 'trash' ? 'Trash' :
           currentUser.projectName
         }
       >
@@ -372,6 +431,8 @@ const App: React.FC = () => {
             projectName={currentUser.projectName}
             shopPhone={currentUser.phone || ''}
           />
+        ) : currentView.type === 'trash' ? (
+          <Trash onRestore={restoreTrashItem} />
         ) : (
           currentCustomer && (
             <CustomerLedger

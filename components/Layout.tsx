@@ -21,7 +21,8 @@ import {
   CircleDot,
   WifiOff,
   Wifi,
-  ShieldCheck
+  ShieldCheck,
+  Trash2
 } from 'lucide-react';
 
 interface LayoutProps {
@@ -36,9 +37,10 @@ interface LayoutProps {
   onViewDashboard: () => void;
   onViewBanks: () => void;
   onViewDaily: () => void;
+  onViewTrash: () => void;
   onToggleDarkMode: () => void;
   isDarkMode: boolean;
-  activeView: 'dashboard' | 'ledger' | 'report' | 'summary' | 'banks' | 'daily';
+  activeView: 'dashboard' | 'ledger' | 'report' | 'summary' | 'banks' | 'daily' | 'trash';
   onLogout: () => void;
   onBackup?: () => void;
   onRestore?: () => void;
@@ -67,6 +69,7 @@ export const Layout: React.FC<LayoutProps> = ({
   onViewDashboard, 
   onViewBanks, 
   onViewDaily, 
+  onViewTrash,
   onToggleDarkMode, 
   isDarkMode, 
   activeView,
@@ -158,6 +161,7 @@ export const Layout: React.FC<LayoutProps> = ({
     { id: 'banks', label: 'Bank Ledger', icon: Landmark, onClick: onViewBanks },
     { id: 'summary', label: 'Summary Report', icon: ClipboardList, onClick: onViewSummary },
     { id: 'report', label: 'Activity Logs', icon: FileText, onClick: onViewReport },
+    { id: 'trash', label: 'Trash', icon: Trash2, onClick: onViewTrash },
   ];
 
   const SidebarItem = ({ item }: { item: typeof navItems[0] }) => {

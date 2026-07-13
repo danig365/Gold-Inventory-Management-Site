@@ -1601,8 +1601,8 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
         <div className="fixed inset-0 bg-black/60 dark:bg-black/80 backdrop-blur-sm flex items-center justify-center z-[90] p-4">
           <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-[340px] w-full p-8 shadow-2xl text-center animate-in zoom-in duration-200 border border-gray-100 dark:border-slate-800">
              <div className="w-20 h-20 bg-rose-50 dark:bg-rose-900/30 rounded-full flex items-center justify-center mx-auto mb-6 text-rose-600 dark:text-rose-400"><AlertTriangle size={40} /></div>
-             <h3 className="font-display text-2xl font-semibold mb-2 tracking-tight text-gray-800 dark:text-slate-100">Delete Permanently?</h3>
-             <p className="text-sm text-gray-500 dark:text-slate-400 mb-10 font-medium px-4 leading-relaxed">Warning: This transaction will be wiped from records and all balances will be recalculated.</p>
+             <h3 className="font-display text-2xl font-semibold mb-2 tracking-tight text-gray-800 dark:text-slate-100">Move to Trash?</h3>
+             <p className="text-sm text-gray-500 dark:text-slate-400 mb-10 font-medium px-4 leading-relaxed">This transaction will be moved to Trash and balances recalculated. You can restore it within 30 days.</p>
              <div className="grid grid-cols-2 gap-4">
                <button onClick={() => setDeletingId(null)} className="py-4 text-sm font-semibold text-gray-500 dark:text-slate-400 uppercase bg-gray-50 dark:bg-slate-800 rounded-2xl hover:bg-gray-100 dark:hover:bg-slate-700 transition-all">Go Back</button>
                <button onClick={() => { onDeleteTransaction(deletingId); setDeletingId(null); }} className="py-4 bg-rose-600 text-white rounded-2xl font-semibold text-sm uppercase shadow-lg shadow-rose-100 dark:shadow-rose-900/20 hover:bg-rose-700 active:scale-95 transition-all">Yes, Delete</button>

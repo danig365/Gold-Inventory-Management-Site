@@ -253,6 +253,21 @@ async function initializeDatabase() {
     await client.query('CREATE INDEX IF NOT EXISTS idx_banks_userid ON banks("userId")');
     await client.query('CREATE INDEX IF NOT EXISTS idx_transactions_userid ON transactions("userId")');
 
+    // --- Trash (soft-delete) table ---
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS trash_items (
+        id TEXT PRIMARY KEY,
+        "userId" TEXT REFERENCES users(id) ON DELETE CASCADE,
+        "itemType" TEXT NOT NULL,
+        "itemId" TEXT NOT NULL,
+        label TEXT,
+        "itemData" JSONB NOT NULL,
+        "deletedAt" TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    await client.query('CREATE INDEX IF NOT EXISTS idx_trash_userid ON trash_items("userId")');
+    await client.query('CREATE INDEX IF NOT EXISTS idx_trash_deletedat ON trash_items("deletedAt")');
+
     const defaultUser = {
       id: 'u_admin',
       username: process.env.DEFAULT_ADMIN_USERNAME || 'admin',
@@ -367,6 +382,19 @@ async function saveAllData(userId, state) {
   } finally {
     client.release();
   }
+}
+
+// --- Trash Retention ---
+const TRASH_RETENTION_DAYS = Number(process.env.TRASH_RETENTION_DAYS || 30);
+
+async function purgeExpiredTrash() {
+  const result = await pool.query(
+    `DELETE FROM trash_items WHERE "deletedAt" < NOW() - INTERVAL '${TRASH_RETENTION_DAYS} days'`
+  );
+  if (result.rowCount > 0) {
+    console.log(`Trash auto-purge: removed ${result.rowCount} item(s) older than ${TRASH_RETENTION_DAYS} days`);
+  }
+  return result.rowCount;
 }
 
 // --- API Routes ---
@@ -898,6 +926,84 @@ app.post('/api/backups/:backupId/restore', requireAuth, async (req, res) => {
   }
 });
 
+// --- Trash Routes (soft-deleted customers, banks, transactions) ---
+
+// Move an item to trash
+app.post('/api/trash', requireAuth, async (req, res) => {
+  try {
+    const { itemType, itemId, itemData, label } = req.body || {};
+    if (!itemType || !itemId || itemData === undefined) {
+      return res.status(400).json({ success: false, error: 'itemType, itemId and itemData are required' });
+    }
+    if (!['customer', 'bank', 'transaction'].includes(itemType)) {
+      return res.status(400).json({ success: false, error: 'Invalid itemType' });
+    }
+    const id = `trash_${Date.now()}_${crypto.randomUUID()}`;
+    const result = await pool.query(
+      `INSERT INTO trash_items (id, "userId", "itemType", "itemId", label, "itemData")
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING id, "itemType", "itemId", label, "itemData", "deletedAt"`,
+      [id, req.user.id, itemType, String(itemId), label ? String(label).slice(0, 200) : null, JSON.stringify(itemData)]
+    );
+    res.status(201).json({ success: true, item: result.rows[0] });
+  } catch (error) {
+    console.error('Error moving item to trash:', error?.message || error);
+    res.status(500).json({ success: false, error: 'Failed to move item to trash' });
+  }
+});
+
+// List the authenticated user's trashed items (newest first)
+app.get('/api/trash', requireAuth, async (req, res) => {
+  try {
+    await purgeExpiredTrash();
+    const result = await pool.query(
+      `SELECT id, "itemType", "itemId", label, "itemData", "deletedAt"
+       FROM trash_items WHERE "userId" = $1 ORDER BY "deletedAt" DESC`,
+      [req.user.id]
+    );
+    res.json({ success: true, items: result.rows, retentionDays: TRASH_RETENTION_DAYS });
+  } catch (error) {
+    console.error('Error listing trash:', error?.message || error);
+    res.status(500).json({ success: false, error: 'Failed to list trash' });
+  }
+});
+
+// Restore a trashed item: removes it from trash and returns its data for the client to re-insert
+app.post('/api/trash/:id/restore', requireAuth, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `DELETE FROM trash_items WHERE id = $1 AND "userId" = $2
+       RETURNING "itemType", "itemId", "itemData"`,
+      [req.params.id, req.user.id]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'Trash item not found' });
+    }
+    const row = result.rows[0];
+    res.json({ success: true, itemType: row.itemType, itemId: row.itemId, itemData: row.itemData });
+  } catch (error) {
+    console.error('Error restoring trash item:', error?.message || error);
+    res.status(500).json({ success: false, error: 'Failed to restore item' });
+  }
+});
+
+// Permanently delete a trashed item
+app.delete('/api/trash/:id', requireAuth, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `DELETE FROM trash_items WHERE id = $1 AND "userId" = $2 RETURNING id`,
+      [req.params.id, req.user.id]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'Trash item not found' });
+    }
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error permanently deleting trash item:', error?.message || error);
+    res.status(500).json({ success: false, error: 'Failed to permanently delete item' });
+  }
+});
+
 // --- Serve Frontend (production) ---
 const distPath = path.join(__dirname, 'dist');
 if (fs.existsSync(distPath)) {
@@ -938,6 +1044,16 @@ initializeDatabase().then(async () => {
   } catch (err) {
     console.error('Startup prune query failed:', err?.message || err);
   }
+
+  // Startup + periodic purge of expired trash items (older than retention window)
+  try {
+    await purgeExpiredTrash();
+  } catch (err) {
+    console.error('Startup trash purge failed:', err?.message || err);
+  }
+  setInterval(() => {
+    purgeExpiredTrash().catch(err => console.error('Scheduled trash purge failed:', err?.message || err));
+  }, 6 * 60 * 60 * 1000); // every 6 hours
 
   app.listen(PORT, () => {
     console.log(`Server running at http://localhost:${PORT}`);

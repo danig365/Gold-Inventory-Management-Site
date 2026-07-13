@@ -641,8 +641,8 @@ const BankLedger: React.FC<BankLedgerProps> = ({ banks, transactions, customers,
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[110] p-4">
           <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-[320px] w-full p-8 shadow-2xl text-center animate-in zoom-in duration-200 border border-gray-100 dark:border-slate-800">
             <div className="w-16 h-16 bg-rose-50 dark:bg-rose-900/30 rounded-full flex items-center justify-center mx-auto mb-4 text-rose-600 dark:text-rose-400"><AlertTriangle size={32} /></div>
-            <h3 className="font-display text-xl font-semibold mb-1 tracking-tight text-gray-800 dark:text-slate-100">Delete Entry?</h3>
-            <p className="text-sm text-gray-500 dark:text-slate-400 mb-8 font-medium px-4">This transaction will be permanently removed and all balances will be recalculated.</p>
+            <h3 className="font-display text-xl font-semibold mb-1 tracking-tight text-gray-800 dark:text-slate-100">Move to Trash?</h3>
+            <p className="text-sm text-gray-500 dark:text-slate-400 mb-8 font-medium px-4">This transaction will be moved to Trash and balances recalculated. You can restore it within 30 days.</p>
             <div className="grid grid-cols-2 gap-3">
               <button onClick={() => setDeletingTxId(null)} className="py-3 text-sm font-semibold text-gray-500 dark:text-slate-400 bg-gray-50 dark:bg-slate-800 rounded-xl hover:bg-gray-100 dark:hover:bg-slate-700 transition-all">Cancel</button>
               <button onClick={() => { onDeleteTransaction(deletingTxId); setDeletingTxId(null); }} className="py-3 bg-rose-600 text-white rounded-xl font-semibold text-sm shadow-lg shadow-rose-100 hover:bg-rose-700 active:scale-95 transition-all">Yes, Delete</button>
@@ -656,8 +656,8 @@ const BankLedger: React.FC<BankLedgerProps> = ({ banks, transactions, customers,
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[110] p-4">
            <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-[320px] w-full p-8 shadow-2xl text-center animate-in zoom-in duration-200 border border-gray-100 dark:border-slate-800">
              <div className="w-16 h-16 bg-rose-50 rounded-full flex items-center justify-center mx-auto mb-4 text-rose-600"><AlertTriangle size={32} /></div>
-             <h3 className="font-display text-xl font-semibold mb-1 tracking-tight text-gray-800 dark:text-slate-100">Delete Account?</h3>
-             <p className="text-sm text-gray-500 dark:text-slate-400 mb-8 font-medium px-4">All transactions associated with this bank will also be removed. This cannot be undone.</p>
+             <h3 className="font-display text-xl font-semibold mb-1 tracking-tight text-gray-800 dark:text-slate-100">Move to Trash?</h3>
+             <p className="text-sm text-gray-500 dark:text-slate-400 mb-8 font-medium px-4">This bank account and its transactions will be moved to Trash. You can restore them within 30 days.</p>
              <div className="grid grid-cols-2 gap-3">
                <button onClick={() => setDeletingBankId(null)} className="py-3 text-sm font-semibold text-gray-500 dark:text-slate-400 bg-gray-50 dark:bg-slate-800 rounded-xl hover:bg-gray-100 dark:hover:bg-slate-700 transition-all">Cancel</button>
                <button onClick={handleDeleteBank} className="py-3 bg-rose-600 text-white rounded-xl font-semibold text-sm shadow-lg shadow-rose-100 hover:bg-rose-700 active:scale-95 transition-all">Delete Account</button>

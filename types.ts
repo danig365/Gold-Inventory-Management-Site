@@ -123,3 +123,14 @@ export interface RestoreResult {
   safetyBackupId: string;
   data: AppState;
 }
+
+export type TrashItemType = 'customer' | 'bank' | 'transaction';
+
+export interface TrashEntry {
+  id: string;
+  itemType: TrashItemType;
+  itemId: string;
+  label: string | null;
+  itemData: any;
+  deletedAt: string;
+}

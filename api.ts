@@ -1,5 +1,5 @@
 // API client - replaces Electron IPC calls with REST API calls
-import type { BackupEntry, RestoreResult } from './types';
+import type { BackupEntry, RestoreResult, TrashEntry, TrashItemType } from './types';
 
 const API_BASE = '/api';
 const AUTH_TOKEN_KEY = 'ledger_auth_token';
@@ -242,5 +242,56 @@ export const api = {
       throw new Error(data?.error || 'Failed to restore backup');
     }
     return res.json() as Promise<RestoreResult>;
+  },
+
+  // --- Trash (soft-delete) ---
+
+  async moveToTrash(itemType: TrashItemType, itemId: string, itemData: any, label?: string): Promise<TrashEntry> {
+    const res = await apiFetch(`${API_BASE}/trash`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ itemType, itemId, itemData, label }),
+    });
+    if (res.status === 401) throw new Error('Unauthorized');
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data?.error || 'Failed to move item to trash');
+    }
+    const data = await res.json();
+    return data.item as TrashEntry;
+  },
+
+  async listTrash(): Promise<{ items: TrashEntry[]; retentionDays: number }> {
+    const res = await apiFetch(`${API_BASE}/trash`);
+    if (res.status === 401) throw new Error('Unauthorized');
+    if (!res.ok) throw new Error('Failed to load trash');
+    const data = await res.json();
+    return { items: (data.items || []) as TrashEntry[], retentionDays: Number(data.retentionDays || 30) };
+  },
+
+  async restoreFromTrash(trashId: string): Promise<{ success: boolean; itemType: TrashItemType; itemId: string; itemData: any }> {
+    const res = await apiFetch(`${API_BASE}/trash/${encodeURIComponent(trashId)}/restore`, {
+      method: 'POST',
+    });
+    if (res.status === 401) throw new Error('Unauthorized');
+    if (res.status === 404) throw new Error('Trash item not found');
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data?.error || 'Failed to restore item');
+    }
+    return res.json();
+  },
+
+  async deleteFromTrash(trashId: string): Promise<{ success: boolean }> {
+    const res = await apiFetch(`${API_BASE}/trash/${encodeURIComponent(trashId)}`, {
+      method: 'DELETE',
+    });
+    if (res.status === 401) throw new Error('Unauthorized');
+    if (res.status === 404) throw new Error('Trash item not found');
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data?.error || 'Failed to permanently delete item');
+    }
+    return res.json();
   },
 };
