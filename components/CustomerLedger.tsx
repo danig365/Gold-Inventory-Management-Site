@@ -10,6 +10,7 @@ import { api } from '../api';
 
 const TOLA_WEIGHT = 11.664;
 const ALT_TOLA_WEIGHT = 12.15;
+const LEDGER_PAGE_SIZE = 25;
 const getStarStorageKey = (customerId: string) => `customer-ledger-stars:${customerId}`;
 
 // Returns the per-tola-equivalent rate for a saved transaction, using whichever
@@ -116,6 +117,7 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
   const [filterStartDate, setFilterStartDate] = useState<string>('');
   const [filterEndDate, setFilterEndDate] = useState<string>('');
   const [showStarredOnly, setShowStarredOnly] = useState<boolean>(false);
+  const [currentPage, setCurrentPage] = useState(1);
   const [starredIds, setStarredIds] = useState<Set<string>>(() => {
     try {
       return new Set(JSON.parse(localStorage.getItem(getStarStorageKey(customer.id)) || '[]'));
@@ -551,6 +553,21 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
     return [...displayedLedgerData].reverse();
   }, [displayedLedgerData]);
 
+  const totalPages = Math.max(1, Math.ceil(tableDisplayData.length / LEDGER_PAGE_SIZE));
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filterType, balanceFilter, filterStartDate, filterEndDate, searchTerm, showStarredOnly, customer.id]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) setCurrentPage(totalPages);
+  }, [currentPage, totalPages]);
+
+  const paginatedTableData = useMemo(() => {
+    const start = (currentPage - 1) * LEDGER_PAGE_SIZE;
+    return tableDisplayData.slice(start, start + LEDGER_PAGE_SIZE);
+  }, [tableDisplayData, currentPage]);
+
   useEffect(() => {
     localStorage.setItem(getStarStorageKey(customer.id), JSON.stringify([...starredIds]));
   }, [starredIds, customer.id]);
@@ -768,7 +785,10 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
         break;
     }
     if (editingTransaction) onUpdateTransaction(tx);
-    else onAddTransaction(tx);
+    else {
+      onAddTransaction(tx);
+      setCurrentPage(1);
+    }
     localStorage.removeItem(draftKey);
     localStorage.removeItem(`${draftKey}_type`);
     setFormData(createDefaultFormData(formData.date));
@@ -1125,7 +1145,7 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
               {tableDisplayData.length === 0 ? (
                 <tr><td colSpan={hideCopper ? 14 : 15} className="px-4 py-12 text-center text-gray-400 dark:text-slate-600 font-medium border border-gray-300 dark:border-slate-800 transition-colors">No transactions recorded</td></tr>
               ) : (
-                tableDisplayData.map((t, index) => (
+                paginatedTableData.map((t, index) => (
                   <tr key={t.id} className={`transition-colors group border-b border-gray-300 dark:border-slate-800 ${starredIds.has(t.id) ? 'ring-1 ring-yellow-300 dark:ring-yellow-700 bg-yellow-50 dark:bg-yellow-950/20' : ''} ${usePlainTable ? 'bg-white dark:bg-slate-900 hover:bg-gray-50 dark:hover:bg-slate-800' : (index % 2 === 0 ? 'bg-[#CAF0F8] dark:bg-indigo-950/40' : 'bg-[#90E0EF] dark:bg-indigo-900/20')}`}>
                     <td className="px-2 py-2 text-center font-semibold text-gray-700 dark:text-slate-400 border-r border-gray-300 dark:border-slate-800">
                       <button onClick={() => toggleStar(t.id)} className={`inline-flex items-center justify-center rounded transition-colors ${starredIds.has(t.id) ? 'text-yellow-500' : 'text-gray-300 dark:text-slate-700 hover:text-yellow-400'}`} title="Star this entry">
@@ -1200,6 +1220,33 @@ const CustomerLedger: React.FC<CustomerLedgerProps> = ({
             </tbody>
           </table>
         </div>
+
+        {tableDisplayData.length > 0 && (
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-4 py-3 border-t border-gray-200 dark:border-slate-800 bg-white dark:bg-slate-900">
+            <span className="text-xs font-medium text-gray-500 dark:text-slate-400">
+              Showing {((currentPage - 1) * LEDGER_PAGE_SIZE) + 1}-{Math.min(currentPage * LEDGER_PAGE_SIZE, tableDisplayData.length)} of {tableDisplayData.length} entries
+            </span>
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                disabled={currentPage === 1}
+                className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-gray-50 dark:bg-slate-800 text-gray-600 dark:text-slate-300 hover:bg-gray-100 dark:hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                Previous
+              </button>
+              <span className="px-3 py-1.5 text-xs font-semibold text-gray-600 dark:text-slate-300">
+                Page {currentPage} of {totalPages}
+              </span>
+              <button
+                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                disabled={currentPage === totalPages}
+                className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-gray-50 dark:bg-slate-800 text-gray-600 dark:text-slate-300 hover:bg-gray-100 dark:hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {isTxModalOpen && (
